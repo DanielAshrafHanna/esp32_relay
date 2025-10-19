@@ -63,5 +63,9 @@ static constexpr const char* RELAY_NAMES[NUM_RELAYS] = {
 // WiFi Configuration Portal timeout (seconds)
 #define PORTAL_TIMEOUT 180
 
+// RF Receiver Configuration
+#define RF_RECEIVER_PIN 15
+#define RF_TRIGGER_DURATION 2000  // 2 seconds in milliseconds
+
 #endif
 

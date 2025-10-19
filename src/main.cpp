@@ -7,6 +7,7 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <Preferences.h>
+#include <RCSwitch.h>
 #include "config.h"
 #include "relay_control.h"
 
@@ -16,6 +17,7 @@ PubSubClient mqttClient(espClient);
 AsyncWebServer server(WEB_SERVER_PORT);
 RelayControl relayControl;
 Preferences preferences;
+RCSwitch rfReceiver = RCSwitch();
 
 // MQTT settings (hardcoded)
 char mqtt_server[40] = "192.168.68.100";
@@ -26,6 +28,14 @@ char mqtt_password[40] = "solacepass";
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
 int activeRelayCount = 16;  // Default to all 16 relays
+
+// RF Receiver settings
+bool rfLearningMode = false;
+unsigned long learnedRFCode = 0;
+unsigned int learnedRFBitLength = 0;
+unsigned int learnedRFProtocol = 0;
+bool rfTriggerActive = false;
+unsigned long rfTriggerStartTime = 0;
 
 // WiFi reconnection management
 unsigned long lastWiFiCheck = 0;
@@ -57,6 +67,11 @@ void publishState(int relayIndex);
 void saveConfigCallback();
 void saveRelayStates();
 void restoreRelayStates();
+void setupRFReceiver();
+void checkRFSignal();
+void publishRFTriggerState();
+void saveRFCode();
+void restoreRFCode();
 bool shouldSaveConfig = false;
 
 void setup() {
@@ -66,8 +81,9 @@ void setup() {
     // Initialize relay control
     relayControl.init();
     
-    // Restore saved relay states
+    // Restore saved relay states and RF code
     restoreRelayStates();
+    restoreRFCode();
     
     // Initialize LittleFS for web files
     if (!LittleFS.begin(true)) {
@@ -88,6 +104,9 @@ void setup() {
     
     // Setup Web Server
     setupWebServer();
+    
+    // Setup RF Receiver
+    setupRFReceiver();
     
     Serial.println("\n=== Setup Complete ===");
     Serial.printf("Device Name: %s\n", DEVICE_NAME);
@@ -111,6 +130,9 @@ void loop() {
         }
         mqttClient.loop();
     }
+    
+    // Check RF signals
+    checkRFSignal();
     
     // Small delay to prevent watchdog resets and allow background tasks
     delay(10);
@@ -466,6 +488,38 @@ void publishDiscovery() {
         }
     }
     
+    // Publish RF Trigger discovery (binary sensor that auto-resets)
+    if (learnedRFCode != 0) {
+        StaticJsonDocument<1024> doc;
+        
+        String uniqueId = String(MDNS_HOSTNAME) + "_rf_trigger";
+        String stateTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_trigger/state";
+        String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + MDNS_HOSTNAME + "_rf_trigger/config";
+        
+        doc["name"] = "RF Trigger";
+        doc["unique_id"] = uniqueId;
+        doc["state_topic"] = stateTopic;
+        doc["availability_topic"] = availTopic;
+        doc["payload_on"] = "ON";
+        doc["payload_off"] = "OFF";
+        doc["device_class"] = "motion";
+        doc["icon"] = "mdi:remote";
+        doc["off_delay"] = 2;  // Auto-off after 2 seconds
+        
+        JsonObject device = doc["device"].to<JsonObject>();
+        device["identifiers"][0] = MDNS_HOSTNAME;
+        device["name"] = DEVICE_NAME;
+        device["manufacturer"] = "ESP32";
+        device["model"] = "16-Channel Relay Controller";
+        device["sw_version"] = "1.0.0";
+        
+        String output;
+        serializeJson(doc, output);
+        
+        mqttClient.publish(configTopic.c_str(), output.c_str(), true);
+        Serial.println("[MQTT] RF Trigger discovery published");
+    }
+    
     Serial.printf("[MQTT] Discovery complete for %d relays\n", activeRelayCount);
 }
 
@@ -745,6 +799,45 @@ void setupWebServer() {
         }
     );
     
+    // API: Get RF status
+    server.on("/api/rf/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        StaticJsonDocument<256> doc;
+        doc["learning_mode"] = rfLearningMode;
+        doc["code_learned"] = (learnedRFCode != 0);
+        doc["rf_code"] = String(learnedRFCode);
+        doc["bit_length"] = learnedRFBitLength;
+        doc["protocol"] = learnedRFProtocol;
+        doc["trigger_active"] = rfTriggerActive;
+        
+        String output;
+        serializeJson(doc, output);
+        request->send(200, "application/json", output);
+    });
+    
+    // API: Start RF learning mode
+    server.on("/api/rf/learn", HTTP_POST, [](AsyncWebServerRequest *request) {
+        rfLearningMode = true;
+        Serial.println("[RF] Learning mode activated - press transmitter button");
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode activated\"}");
+    });
+    
+    // API: Stop RF learning mode
+    server.on("/api/rf/stop", HTTP_POST, [](AsyncWebServerRequest *request) {
+        rfLearningMode = false;
+        Serial.println("[RF] Learning mode deactivated");
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode deactivated\"}");
+    });
+    
+    // API: Clear learned RF code
+    server.on("/api/rf/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
+        learnedRFCode = 0;
+        learnedRFBitLength = 0;
+        learnedRFProtocol = 0;
+        saveRFCode();
+        Serial.println("[RF] Learned code cleared");
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"RF code cleared\"}");
+    });
+    
     // Serve static files LAST (so API routes are matched first)
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
     
@@ -803,5 +896,104 @@ void restoreRelayStates() {
     
     preferences.end();
     Serial.println("[Storage] Relay states restored");
+}
+
+// RF Receiver Functions
+
+void setupRFReceiver() {
+    rfReceiver.enableReceive(digitalPinToInterrupt(RF_RECEIVER_PIN));
+    Serial.printf("[RF] Receiver initialized on GPIO %d\n", RF_RECEIVER_PIN);
+    
+    if (learnedRFCode != 0) {
+        Serial.printf("[RF] Learned code loaded: %lu (bit: %d, protocol: %d)\n", 
+                     learnedRFCode, learnedRFBitLength, learnedRFProtocol);
+    } else {
+        Serial.println("[RF] No code learned yet");
+    }
+}
+
+void checkRFSignal() {
+    if (rfReceiver.available()) {
+        unsigned long receivedCode = rfReceiver.getReceivedValue();
+        unsigned int bitLength = rfReceiver.getReceivedBitlength();
+        unsigned int protocol = rfReceiver.getReceivedProtocol();
+        
+        if (receivedCode != 0) {
+            // Learning mode - capture the signal
+            if (rfLearningMode) {
+                learnedRFCode = receivedCode;
+                learnedRFBitLength = bitLength;
+                learnedRFProtocol = protocol;
+                rfLearningMode = false;
+                
+                Serial.printf("[RF] Code learned: %lu (bit: %d, protocol: %d)\n", 
+                             receivedCode, bitLength, protocol);
+                
+                // Save to preferences
+                saveRFCode();
+                
+                // Republish MQTT discovery to add RF trigger entity
+                if (mqttClient.connected()) {
+                    publishDiscovery();
+                }
+            }
+            // Normal mode - check if it matches learned code
+            else if (receivedCode == learnedRFCode && 
+                     bitLength == learnedRFBitLength && 
+                     protocol == learnedRFProtocol) {
+                
+                Serial.println("[RF] Learned signal detected!");
+                
+                // Activate trigger
+                rfTriggerActive = true;
+                rfTriggerStartTime = millis();
+                
+                // Publish ON state to MQTT
+                publishRFTriggerState();
+            }
+        }
+        
+        rfReceiver.resetAvailable();
+    }
+    
+    // Auto-off after 2 seconds
+    if (rfTriggerActive && (millis() - rfTriggerStartTime >= RF_TRIGGER_DURATION)) {
+        rfTriggerActive = false;
+        Serial.println("[RF] Trigger auto-off");
+        publishRFTriggerState();
+    }
+}
+
+void publishRFTriggerState() {
+    if (!mqttClient.connected()) return;
+    
+    String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_trigger/state";
+    String state = rfTriggerActive ? "ON" : "OFF";
+    
+    mqttClient.publish(topic.c_str(), state.c_str(), true);
+    Serial.printf("[RF] Published trigger state: %s\n", state.c_str());
+}
+
+void saveRFCode() {
+    preferences.begin("relay-states", false);
+    preferences.putULong("rf_code", learnedRFCode);
+    preferences.putUInt("rf_bits", learnedRFBitLength);
+    preferences.putUInt("rf_proto", learnedRFProtocol);
+    preferences.end();
+    
+    Serial.println("[RF] Code saved to preferences");
+}
+
+void restoreRFCode() {
+    preferences.begin("relay-states", true);
+    learnedRFCode = preferences.getULong("rf_code", 0);
+    learnedRFBitLength = preferences.getUInt("rf_bits", 0);
+    learnedRFProtocol = preferences.getUInt("rf_proto", 0);
+    preferences.end();
+    
+    if (learnedRFCode != 0) {
+        Serial.printf("[RF] Code restored: %lu (bit: %d, protocol: %d)\n", 
+                     learnedRFCode, learnedRFBitLength, learnedRFProtocol);
+    }
 }
 
