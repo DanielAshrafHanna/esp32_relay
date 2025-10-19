@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Relay Controller</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔌 ESP32 Relay Controller</h1>
+            <div class="status-bar">
+                <div class="status-item">
+                    <span class="label">WiFi:</span>
+                    <span id="wifi-ssid">--</span>
+                    <span id="wifi-signal" class="signal">📶</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">IP:</span>
+                    <span id="wifi-ip">--</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">MQTT:</span>
+                    <span id="mqtt-status" class="status-badge">Disconnected</span>
+                </div>
+            </div>
+        </header>
+
+        <main>
+            <section class="relays-section">
+                <h2>Relay Control</h2>
+                <div id="relays-container" class="relays-grid">
+                    <!-- Relays will be loaded here dynamically -->
+                </div>
+            </section>
+
+            <section class="info-section">
+                <h2>System Information</h2>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h3>Network</h3>
+                        <p><strong>Hostname:</strong> <span id="hostname">--</span></p>
+                        <p><strong>SSID:</strong> <span id="info-ssid">--</span></p>
+                        <p><strong>IP Address:</strong> <span id="info-ip">--</span></p>
+                        <p><strong>Signal:</strong> <span id="info-rssi">--</span> dBm</p>
+                    </div>
+                    <div class="info-card">
+                        <h3>MQTT</h3>
+                        <p><strong>Server:</strong> <span id="mqtt-server">--</span></p>
+                        <p><strong>Port:</strong> <span id="mqtt-port">--</span></p>
+                        <p><strong>Status:</strong> <span id="mqtt-connected">--</span></p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-section">
+                <h2>Settings</h2>
+                <div class="settings-card">
+                    <p>Restart the ESP32 controller</p>
+                    <a href="/restart" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">🔄 Restart ESP32</a>
+                </div>
+                <div class="settings-card">
+                    <p>Reset WiFi and MQTT settings to reconfigure</p>
+                    <button id="reset-btn" class="btn-danger">Reset Configuration</button>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ESP32 Relay Controller v1.0 | Home Assistant Compatible</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
+

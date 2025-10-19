@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solace Admin - ESP32 Relay</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .admin-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9rem;
+        }
+
+        .config-section {
+            margin-bottom: 30px;
+        }
+
+        .config-section h2 {
+            color: #333;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+        }
+
+        .option-card {
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .option-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .option-card.selected {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea15, #764ba215);
+        }
+
+        .option-card input[type="radio"] {
+            display: none;
+        }
+
+        .option-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .radio-custom {
+            width: 24px;
+            height: 24px;
+            border: 2px solid #ddd;
+            border-radius: 50%;
+            margin-right: 15px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .option-card.selected .radio-custom {
+            border-color: #667eea;
+        }
+
+        .option-card.selected .radio-custom::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 12px;
+            height: 12px;
+            background: #667eea;
+            border-radius: 50%;
+        }
+
+        .option-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .option-description {
+            color: #666;
+            font-size: 0.9rem;
+            margin-left: 39px;
+        }
+
+        .current-config {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 30px;
+        }
+
+        .current-config p {
+            color: #1976D2;
+            font-weight: 500;
+        }
+
+        .btn-save {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-save:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-save:active {
+            transform: translateY(0);
+        }
+
+        .success-message {
+            background: #4CAF50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .info-note {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .info-note p {
+            color: #856404;
+            font-size: 0.9rem;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 5px;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <h1>🔧 Solace Admin</h1>
+        <p class="subtitle">ESP32 Relay Controller Configuration</p>
+
+        <div class="current-config" id="current-config">
+            <p>Current Configuration: <span id="current-relays">Loading...</span></p>
+        </div>
+
+        <div class="config-section">
+            <h2>MQTT Configuration</h2>
+            
+            <div class="form-group">
+                <label for="mqtt-server">MQTT Server (IP Address)</label>
+                <input type="text" id="mqtt-server" placeholder="192.168.68.100" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label for="mqtt-port">MQTT Port</label>
+                <input type="number" id="mqtt-port" placeholder="1883" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label for="mqtt-user">MQTT Username</label>
+                <input type="text" id="mqtt-user" placeholder="solacemqtt" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label for="mqtt-password">MQTT Password</label>
+                <input type="password" id="mqtt-password" placeholder="••••••••" class="form-input">
+                <small style="color: #666;">Leave unchanged to keep current password</small>
+            </div>
+
+            <button class="btn-save" onclick="saveMQTT()" style="margin-bottom: 30px;">💾 Save MQTT Settings</button>
+        </div>
+
+        <div class="config-section">
+            <h2>Home Assistant Relay Entities</h2>
+
+            <label class="option-card" data-value="8">
+                <input type="radio" name="relay-count" value="8">
+                <div class="option-header">
+                    <div class="radio-custom"></div>
+                    <div class="option-title">8 Channels</div>
+                </div>
+                <div class="option-description">
+                    Relays 1 to 8 will appear in Home Assistant
+                </div>
+            </label>
+
+            <label class="option-card" data-value="12">
+                <input type="radio" name="relay-count" value="12">
+                <div class="option-header">
+                    <div class="radio-custom"></div>
+                    <div class="option-title">12 Channels</div>
+                </div>
+                <div class="option-description">
+                    Relays 1 to 12 will appear in Home Assistant
+                </div>
+            </label>
+
+            <label class="option-card" data-value="16">
+                <input type="radio" name="relay-count" value="16">
+                <div class="option-header">
+                    <div class="radio-custom"></div>
+                    <div class="option-title">16 Channels</div>
+                </div>
+                <div class="option-description">
+                    Relays 1 to 16 will appear in Home Assistant (All relays)
+                </div>
+            </label>
+        </div>
+
+        <button class="btn-save" onclick="saveConfig()">💾 Save Configuration</button>
+
+        <div class="success-message" id="success-message">
+            ✓ Configuration saved! ESP32 will restart in 3 seconds...
+        </div>
+
+        <div class="info-note">
+            <p><strong>Note:</strong> After saving, the ESP32 will restart and republish MQTT discovery messages with the selected number of relays.</p>
+        </div>
+
+        <a href="/" class="back-link">← Back to Main Page</a>
+    </div>
+
+    <script>
+        let currentConfig = 16;
+
+        // Load current configuration
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/admin/config');
+                const data = await response.json();
+                currentConfig = data.active_relays || 16;
+                
+                document.getElementById('current-relays').textContent = `${currentConfig} Channels`;
+                
+                // Load MQTT settings
+                document.getElementById('mqtt-server').value = data.mqtt_server || '';
+                document.getElementById('mqtt-port').value = data.mqtt_port || 1883;
+                document.getElementById('mqtt-user').value = data.mqtt_user || '';
+                document.getElementById('mqtt-password').value = data.mqtt_password || '';
+                
+                // Select the current relay count option
+                const option = document.querySelector(`.option-card[data-value="${currentConfig}"]`);
+                if (option) {
+                    option.classList.add('selected');
+                    option.querySelector('input').checked = true;
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+                document.getElementById('current-relays').textContent = '16 Channels (default)';
+            }
+        }
+
+        // Handle option selection
+        document.querySelectorAll('.option-card').forEach(card => {
+            card.addEventListener('click', function() {
+                document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
+                this.classList.add('selected');
+                this.querySelector('input').checked = true;
+            });
+        });
+
+        // Save configuration
+        async function saveConfig() {
+            const selected = document.querySelector('input[name="relay-count"]:checked');
+            
+            if (!selected) {
+                alert('Please select a configuration');
+                return;
+            }
+
+            const relayCount = parseInt(selected.value);
+
+            try {
+                const response = await fetch('/api/admin/config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        active_relays: relayCount
+                    })
+                });
+
+                if (response.ok) {
+                    document.getElementById('success-message').style.display = 'block';
+                    
+                    // Wait 3 seconds then reload
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 3000);
+                } else {
+                    alert('Failed to save configuration');
+                }
+            } catch (error) {
+                console.error('Error saving config:', error);
+                alert('Error saving configuration');
+            }
+        }
+
+        // Save MQTT configuration
+        async function saveMQTT() {
+            const mqttServer = document.getElementById('mqtt-server').value.trim();
+            const mqttPort = parseInt(document.getElementById('mqtt-port').value);
+            const mqttUser = document.getElementById('mqtt-user').value.trim();
+            const mqttPassword = document.getElementById('mqtt-password').value;
+
+            if (!mqttServer || !mqttPort) {
+                alert('Please fill in MQTT server and port');
+                return;
+            }
+
+            if (mqttPort < 1 || mqttPort > 65535) {
+                alert('Invalid port number');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/mqtt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        mqtt_server: mqttServer,
+                        mqtt_port: mqttPort,
+                        mqtt_user: mqttUser,
+                        mqtt_password: mqttPassword
+                    })
+                });
+
+                if (response.ok) {
+                    document.getElementById('success-message').textContent = '✓ MQTT settings saved! ESP32 will restart in 3 seconds...';
+                    document.getElementById('success-message').style.display = 'block';
+                    
+                    // Wait 3 seconds then reload
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 3000);
+                } else {
+                    alert('Failed to save MQTT settings');
+                }
+            } catch (error) {
+                console.error('Error saving MQTT:', error);
+                alert('Error saving MQTT settings');
+            }
+        }
+
+        // Load config on page load
+        loadConfig();
+    </script>
+</body>
+</html>
+
+

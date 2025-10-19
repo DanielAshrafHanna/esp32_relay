@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF Setup - ESP32 Relay Controller</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .rf-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .rf-status {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .rf-status h2 {
+            margin: 0 0 15px 0;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .status-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        .status-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        
+        .status-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin-top: 5px;
+        }
+        
+        .rf-controls {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .btn-learn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            margin: 10px 0;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .btn-learn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-learn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-cancel {
+            background: #ff6b6b;
+        }
+        
+        .btn-cancel:hover {
+            box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+        }
+        
+        .btn-clear {
+            background: #f39c12;
+        }
+        
+        .btn-clear:hover {
+            box-shadow: 0 4px 12px rgba(243, 156, 18, 0.4);
+        }
+        
+        .learning-indicator {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            text-align: center;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .success-message {
+            background: #d4edda;
+            border: 2px solid #28a745;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            text-align: center;
+        }
+        
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        
+        .info-box h3 {
+            margin-top: 0;
+            color: #1976D2;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="rf-container">
+        <h1>📡 RF Receiver Setup</h1>
+        
+        <div class="rf-status">
+            <h2>RF Receiver Status</h2>
+            <div class="status-grid">
+                <div class="status-item">
+                    <div class="status-label">Learning Mode</div>
+                    <div class="status-value" id="learning-mode">OFF</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Code Learned</div>
+                    <div class="status-value" id="code-learned">NO</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Learned Code</div>
+                    <div class="status-value" id="learned-code">None</div>
+                </div>
+                <div class="status-item">
+                    <div class="status-label">Toggle State</div>
+                    <div class="status-value" id="toggle-state">OFF</div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="learning-indicator" style="display: none;" class="learning-indicator">
+            <strong>📻 Learning Mode Active</strong><br>
+            Press your RF remote button now...
+        </div>
+        
+        <div id="success-message" style="display: none;" class="success-message">
+            <strong>✅ RF Code Learned Successfully!</strong><br>
+            The RF Toggle entity will appear in Home Assistant.
+        </div>
+        
+        <div class="rf-controls">
+            <h3>Learn RF Code</h3>
+            <p>Click the button below and then press your RF remote button to learn the code.</p>
+            <button id="btn-learn" class="btn-learn" onclick="startLearning()">📻 Start Learning</button>
+            <button id="btn-cancel" class="btn-learn btn-cancel" onclick="cancelLearning()" style="display: none;">❌ Cancel Learning</button>
+            <button id="btn-clear" class="btn-learn btn-clear" onclick="clearCode()">🗑️ Clear Learned Code</button>
+        </div>
+        
+        <div class="info-box">
+            <h3>How It Works</h3>
+            <p><strong>1. Learn RF Code:</strong> Click "Start Learning" and press your RF remote button.</p>
+            <p><strong>2. Home Assistant Entity:</strong> An "RF Toggle" entity will appear alongside your relay switches.</p>
+            <p><strong>3. Automatic Trigger:</strong> When the learned RF signal is received, the toggle turns ON for 2 seconds, then automatically turns OFF.</p>
+            <p><strong>4. Use in Automations:</strong> Create Home Assistant automations based on this toggle state.</p>
+        </div>
+        
+        <div class="info-box">
+            <h3>Technical Details</h3>
+            <p><strong>Receiver:</strong> SYN480R 433MHz</p>
+            <p><strong>Pin:</strong> GPIO 15</p>
+            <p><strong>Toggle Duration:</strong> 2 seconds</p>
+            <p><strong>Storage:</strong> Code saved to NVS (persists across reboots)</p>
+        </div>
+        
+        <a href="/" class="back-link">← Back to Main Page</a>
+    </div>
+    
+    <script>
+        let statusInterval;
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatus();
+            statusInterval = setInterval(loadStatus, 1000);
+        });
+        
+        // Load RF receiver status
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/rf/status');
+                const data = await response.json();
+                
+                // Update status display
+                document.getElementById('learning-mode').textContent = data.learning_mode ? 'ON' : 'OFF';
+                document.getElementById('learning-mode').style.color = data.learning_mode ? '#4CAF50' : '#fff';
+                
+                document.getElementById('code-learned').textContent = data.code_learned ? 'YES' : 'NO';
+                document.getElementById('code-learned').style.color = data.code_learned ? '#4CAF50' : '#fff';
+                
+                document.getElementById('learned-code').textContent = data.code_learned ? data.learned_code : 'None';
+                
+                document.getElementById('toggle-state').textContent = data.toggle_state ? 'ON' : 'OFF';
+                document.getElementById('toggle-state').style.color = data.toggle_state ? '#4CAF50' : '#fff';
+                
+                // Show/hide learning indicator
+                if (data.learning_mode) {
+                    document.getElementById('learning-indicator').style.display = 'block';
+                    document.getElementById('btn-learn').style.display = 'none';
+                    document.getElementById('btn-cancel').style.display = 'block';
+                    document.getElementById('btn-clear').disabled = true;
+                } else {
+                    document.getElementById('learning-indicator').style.display = 'none';
+                    document.getElementById('btn-learn').style.display = 'block';
+                    document.getElementById('btn-cancel').style.display = 'none';
+                    document.getElementById('btn-clear').disabled = false;
+                }
+                
+                // Show success message if code was just learned
+                if (data.code_learned && document.getElementById('success-message').style.display === 'none') {
+                    document.getElementById('success-message').style.display = 'block';
+                    setTimeout(() => {
+                        document.getElementById('success-message').style.display = 'none';
+                    }, 5000);
+                }
+                
+            } catch (error) {
+                console.error('Error loading RF status:', error);
+            }
+        }
+        
+        // Start learning mode
+        async function startLearning() {
+            try {
+                const response = await fetch('/api/rf/learn', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    document.getElementById('learning-indicator').style.display = 'block';
+                    document.getElementById('btn-learn').style.display = 'none';
+                    document.getElementById('btn-cancel').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Error starting learning mode:', error);
+                alert('Failed to start learning mode');
+            }
+        }
+        
+        // Cancel learning mode
+        async function cancelLearning() {
+            try {
+                const response = await fetch('/api/rf/cancel', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    document.getElementById('learning-indicator').style.display = 'none';
+                    document.getElementById('btn-learn').style.display = 'block';
+                    document.getElementById('btn-cancel').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error cancelling learning mode:', error);
+            }
+        }
+        
+        // Clear learned code
+        async function clearCode() {
+            if (!confirm('Are you sure you want to clear the learned RF code?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/rf/clear', {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    alert('Learned RF code cleared successfully');
+                    document.getElementById('success-message').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error clearing RF code:', error);
+                alert('Failed to clear RF code');
+            }
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (statusInterval) {
+                clearInterval(statusInterval);
+            }
+        });
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,131 @@
+# Home Assistant Configuration Example
+# Add this to your configuration.yaml
+
+# MQTT Configuration (if not already configured)
+mqtt:
+  broker: 192.168.1.100  # Change to your MQTT broker IP
+  port: 1883
+  username: YOUR_MQTT_USERNAME  # Optional
+  password: YOUR_MQTT_PASSWORD  # Optional
+  discovery: true
+  discovery_prefix: homeassistant
+
+# Manual Switch Configuration (only if auto-discovery doesn't work)
+# The ESP32 automatically publishes discovery messages, so this is usually not needed
+
+switch:
+  # Relay 1
+  - platform: mqtt
+    name: "ESP32 Relay 1"
+    unique_id: esp32_relay_relay1
+    state_topic: "homeassistant/switch/esp32-relay/relay1/state"
+    command_topic: "homeassistant/switch/esp32-relay/relay1/set"
+    payload_on: "ON"
+    payload_off: "OFF"
+    optimistic: false
+    retain: true
+    
+  # Relay 2
+  - platform: mqtt
+    name: "ESP32 Relay 2"
+    unique_id: esp32_relay_relay2
+    state_topic: "homeassistant/switch/esp32-relay/relay2/state"
+    command_topic: "homeassistant/switch/esp32-relay/relay2/set"
+    payload_on: "ON"
+    payload_off: "OFF"
+    optimistic: false
+    retain: true
+    
+  # Relay 3
+  - platform: mqtt
+    name: "ESP32 Relay 3"
+    unique_id: esp32_relay_relay3
+    state_topic: "homeassistant/switch/esp32-relay/relay3/state"
+    command_topic: "homeassistant/switch/esp32-relay/relay3/set"
+    payload_on: "ON"
+    payload_off: "OFF"
+    optimistic: false
+    retain: true
+    
+  # Relay 4
+  - platform: mqtt
+    name: "ESP32 Relay 4"
+    unique_id: esp32_relay_relay4
+    state_topic: "homeassistant/switch/esp32-relay/relay4/state"
+    command_topic: "homeassistant/switch/esp32-relay/relay4/set"
+    payload_on: "ON"
+    payload_off: "OFF"
+    optimistic: false
+    retain: true
+
+# Example Automation: Turn on relay 1 at sunset
+automation:
+  - alias: "Relay 1 On at Sunset"
+    trigger:
+      - platform: sun
+        event: sunset
+    action:
+      - service: switch.turn_on
+        target:
+          entity_id: switch.esp32_relay_1
+
+  # Example: Turn off all relays at midnight
+  - alias: "All Relays Off at Midnight"
+    trigger:
+      - platform: time
+        at: "00:00:00"
+    action:
+      - service: switch.turn_off
+        target:
+          entity_id:
+            - switch.esp32_relay_1
+            - switch.esp32_relay_2
+            - switch.esp32_relay_3
+            - switch.esp32_relay_4
+
+# Example Scene: Movie Mode
+scene:
+  - name: Movie Mode
+    entities:
+      switch.esp32_relay_1:
+        state: off  # Main lights off
+      switch.esp32_relay_2:
+        state: on   # Ambient lights on
+      switch.esp32_relay_3:
+        state: off  
+      switch.esp32_relay_4:
+        state: on   # LED strip on
+
+# Example Script: Toggle All Relays
+script:
+  toggle_all_relays:
+    alias: "Toggle All Relays"
+    sequence:
+      - service: switch.toggle
+        target:
+          entity_id:
+            - switch.esp32_relay_1
+            - switch.esp32_relay_2
+            - switch.esp32_relay_3
+            - switch.esp32_relay_4
+
+# Example Lovelace Card Configuration
+# Add this to your Lovelace dashboard (Dashboard → Edit Dashboard → Raw Configuration Editor)
+
+# type: entities
+# title: ESP32 Relay Controller
+# entities:
+#   - entity: switch.esp32_relay_1
+#     name: Living Room Light
+#   - entity: switch.esp32_relay_2
+#     name: Bedroom Fan
+#   - entity: switch.esp32_relay_3
+#     name: Garden Pump
+#   - entity: switch.esp32_relay_4
+#     name: Garage Door
+# show_header_toggle: true
+
+
+
+
+
