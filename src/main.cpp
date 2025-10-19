@@ -37,6 +37,11 @@ unsigned int learnedRFProtocol = 0;
 bool rfTriggerActive = false;
 unsigned long rfTriggerStartTime = 0;
 
+// MQTT Discovery management
+bool discoveryPublished = false;  // Only publish once per boot unless manually triggered
+unsigned long lastMQTTAttempt = 0;
+const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Try reconnecting every 10 seconds (was 5)
+
 // WiFi reconnection management
 unsigned long lastWiFiCheck = 0;
 unsigned long lastReconnectAttempt = 0;
@@ -47,6 +52,7 @@ bool apModeActive = false;
 bool wifiConnected = false;
 bool wifiReconnecting = false;
 unsigned long reconnectStartTime = 0;
+bool mdnsInitialized = false;  // Track if mDNS has been set up in setup()
 WiFiEventId_t wifiConnectHandler;
 WiFiEventId_t wifiDisconnectHandler;
 
@@ -152,11 +158,28 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
         WiFi.mode(WIFI_STA);  // Switch back to station-only mode
     }
     
-    // Restart mDNS for new IP
-    MDNS.end();
-    if (MDNS.begin(MDNS_HOSTNAME)) {
-        Serial.printf("[mDNS] Responder started: http://%s.local\n", MDNS_HOSTNAME);
-        MDNS.addService("http", "tcp", 80);
+    // ONLY restart mDNS if it was already initialized (reconnection scenario)
+    // Don't interfere with initial setup in setup()
+    if (mdnsInitialized) {
+        Serial.println("[WiFi] Reconnection detected - restarting mDNS...");
+        
+        // Give WiFi a moment to fully stabilize
+        delay(100);
+        
+        // Restart mDNS for new IP
+        MDNS.end();
+        delay(50);
+        
+        if (MDNS.begin(MDNS_HOSTNAME)) {
+            Serial.printf("[mDNS] Responder restarted: http://%s.local\n", MDNS_HOSTNAME);
+            MDNS.addService("http", "tcp", 80);
+            delay(100);
+            Serial.println("[mDNS] Service re-announced");
+        } else {
+            Serial.println("[mDNS] ERROR: Failed to restart mDNS responder!");
+        }
+    } else {
+        Serial.println("[WiFi] Initial connection - mDNS will be set up in setup()");
     }
 }
 
@@ -331,11 +354,30 @@ void setupWiFi() {
 }
 
 void setupMDNS() {
+    // Ensure WiFi is ready before starting mDNS
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[mDNS] Waiting for WiFi connection...");
+        return;
+    }
+    
+    Serial.println("[mDNS] Starting mDNS responder...");
+    
     if (MDNS.begin(MDNS_HOSTNAME)) {
-        Serial.printf("mDNS responder started: http://%s.local\n", MDNS_HOSTNAME);
+        Serial.printf("[mDNS] Responder started: http://%s.local\n", MDNS_HOSTNAME);
+        Serial.printf("[mDNS] IP Address: %s\n", WiFi.localIP().toString().c_str());
+        
+        // Add HTTP service
         MDNS.addService("http", "tcp", 80);
+        
+        Serial.println("[mDNS] HTTP service registered");
+        Serial.println("[mDNS] Device should now be discoverable at esp32-relay.local");
+        
+        // Mark as initialized so event handler can restart it on reconnection
+        mdnsInitialized = true;
     } else {
-        Serial.println("Error setting up mDNS responder!");
+        Serial.println("[mDNS] ERROR: Failed to start mDNS responder!");
+        Serial.println("[mDNS] .local URL will not work - use IP address instead");
+        mdnsInitialized = false;
     }
 }
 
@@ -350,15 +392,23 @@ void setupMQTT() {
     }
 }
 
+/*
+ * Optimized MQTT Reconnection
+ * 
+ * Strategy:
+ * - Publishes discovery ONCE per boot (on first connection)
+ * - Subsequent reconnections only publish states (fast, non-blocking)
+ * - Manual republish available via /api/mqtt/rediscover
+ * - Longer retry interval (10s) to prevent connection storms
+ * 
+ * This prevents blocking delays while maintaining reliability.
+ */
 void reconnectMQTT() {
-    static unsigned long lastAttempt = 0;
-    static bool discoveryPublished = false;
-    
-    // Only try to reconnect every 5 seconds
-    if (millis() - lastAttempt < 5000) {
+    // Use the global lastMQTTAttempt to prevent rapid reconnection attempts
+    if (millis() - lastMQTTAttempt < MQTT_RETRY_INTERVAL) {
         return;
     }
-    lastAttempt = millis();
+    lastMQTTAttempt = millis();
     
     if (strlen(mqtt_server) == 0) {
         return;
@@ -391,19 +441,25 @@ void reconnectMQTT() {
         }
         Serial.println("Subscribed to command topics");
         
-        // Only publish discovery once per boot to avoid blocking
+        // Only publish discovery on FIRST connection after boot
         if (!discoveryPublished) {
-            Serial.println("Publishing discovery messages (one-time)...");
+            Serial.println("[MQTT] First connection - publishing discovery...");
             publishDiscovery();
             discoveryPublished = true;
             
-            // Publish initial states
-            for (int i = 0; i < NUM_RELAYS; i++) {
+            // Publish initial states (with yield to prevent blocking)
+            for (int i = 0; i < activeRelayCount; i++) {
                 publishState(i);
-                delay(10);  // Small delay between states
+                yield();  // Allow other tasks to run
             }
+            Serial.println("[MQTT] Discovery and states published");
         } else {
-            Serial.println("Discovery already published, skipping");
+            // On reconnection, just republish current states quickly
+            Serial.println("[MQTT] Reconnected - republishing states only");
+            for (int i = 0; i < activeRelayCount; i++) {
+                publishState(i);
+                yield();
+            }
         }
     } else {
         Serial.print("failed, rc=");
@@ -481,11 +537,8 @@ void publishDiscovery() {
         
         mqttClient.publish(configTopic.c_str(), output.c_str(), true);
         
-        // Minimal delay and yield to prevent blocking web server
-        if (i < activeRelayCount - 1) {  // Don't delay after the last one
-            delay(20);
-            yield();
-        }
+        // Yield to prevent blocking (no delays!)
+        yield();
     }
     
     // Publish RF Trigger discovery (binary sensor that auto-resets)
@@ -838,6 +891,61 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"success\":true,\"message\":\"RF code cleared\"}");
     });
     
+    // API: Force MQTT discovery republish (manual trigger)
+    server.on("/api/mqtt/rediscover", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (mqttClient.connected()) {
+            Serial.println("[API] Manual discovery republish requested...");
+            publishDiscovery();
+            
+            // Republish all states
+            for (int i = 0; i < activeRelayCount; i++) {
+                publishState(i);
+                yield();
+            }
+            
+            request->send(200, "application/json", "{\"success\":true,\"message\":\"Discovery republished\"}");
+        } else {
+            request->send(503, "application/json", "{\"error\":\"MQTT not connected\"}");
+        }
+    });
+    
+    // API: Restart mDNS service (troubleshooting)
+    server.on("/api/mdns/restart", HTTP_POST, [](AsyncWebServerRequest *request) {
+        Serial.println("[API] Restarting mDNS service...");
+        MDNS.end();
+        delay(100);
+        
+        if (MDNS.begin(MDNS_HOSTNAME)) {
+            MDNS.addService("http", "tcp", 80);
+            delay(100);
+            mdnsInitialized = true;  // Mark as initialized
+            Serial.printf("[mDNS] Service restarted: http://%s.local\n", MDNS_HOSTNAME);
+            request->send(200, "application/json", "{\"success\":true,\"message\":\"mDNS restarted\"}");
+        } else {
+            mdnsInitialized = false;
+            Serial.println("[mDNS] ERROR: Failed to restart mDNS");
+            request->send(500, "application/json", "{\"error\":\"Failed to restart mDNS\"}");
+        }
+    });
+    
+    // API: Get mDNS status
+    server.on("/api/mdns/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        StaticJsonDocument<256> doc;
+        doc["hostname"] = MDNS_HOSTNAME;
+        doc["url"] = "http://" + String(MDNS_HOSTNAME) + ".local";
+        doc["ip"] = WiFi.localIP().toString();
+        doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
+        
+        String output;
+        serializeJson(doc, output);
+        request->send(200, "application/json", output);
+    });
+    
+    // Handle favicon.ico requests to prevent error messages
+    server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
+        request->send(204);  // 204 No Content - silences browser requests
+    });
+    
     // Serve static files LAST (so API routes are matched first)
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
     
@@ -932,10 +1040,8 @@ void checkRFSignal() {
                 // Save to preferences
                 saveRFCode();
                 
-                // Republish MQTT discovery to add RF trigger entity
-                if (mqttClient.connected()) {
-                    publishDiscovery();
-                }
+                // Mark for discovery republish (will happen on next reboot or manual trigger)
+                Serial.println("[RF] Code learned. Use /api/mqtt/rediscover to update HA entities, or reboot.");
             }
             // Normal mode - check if it matches learned code
             else if (receivedCode == learnedRFCode && 
