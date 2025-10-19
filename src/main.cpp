@@ -27,8 +27,26 @@ char mqtt_password[40] = "solacepass";
 const char* ADMIN_PASSWORD = "Solacepass@123";
 int activeRelayCount = 16;  // Default to all 16 relays
 
+// WiFi reconnection management
+unsigned long lastWiFiCheck = 0;
+unsigned long lastReconnectAttempt = 0;
+const unsigned long WIFI_CHECK_INTERVAL = 30000;     // Check WiFi every 30 seconds
+const unsigned long RECONNECT_INTERVAL = 60000;      // Try to reconnect every 60 seconds
+const unsigned long RECONNECT_TIMEOUT = 30000;       // 30 second timeout for reconnection
+bool apModeActive = false;
+bool wifiConnected = false;
+bool wifiReconnecting = false;
+unsigned long reconnectStartTime = 0;
+WiFiEventId_t wifiConnectHandler;
+WiFiEventId_t wifiDisconnectHandler;
+
 // Function declarations
+void checkWiFiConnection();
+void startAPMode();
 void setupWiFi();
+void setupWiFiEvents();
+void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info);
+void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info);
 void setupMQTT();
 void setupWebServer();
 void setupMDNS();
@@ -56,6 +74,9 @@ void setup() {
         Serial.println("LittleFS Mount Failed");
     }
     
+    // Setup WiFi event handlers FIRST (before connecting)
+    setupWiFiEvents();
+    
     // Setup WiFi with captive portal
     setupWiFi();
     
@@ -80,14 +101,146 @@ void setup() {
 }
 
 void loop() {
-    // Reconnect to MQTT if needed
-    if (!mqttClient.connected()) {
-        reconnectMQTT();
+    // Check WiFi connection status
+    checkWiFiConnection();
+    
+    // Reconnect to MQTT if needed (only if WiFi is connected)
+    if (WiFi.status() == WL_CONNECTED) {
+        if (!mqttClient.connected()) {
+            reconnectMQTT();
+        }
+        mqttClient.loop();
     }
-    mqttClient.loop();
     
     // Small delay to prevent watchdog resets and allow background tasks
     delay(10);
+}
+
+// WiFi event handlers - called automatically by ESP32
+void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
+    Serial.println("[WiFi] Event: Connected!");
+    Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
+    wifiConnected = true;
+    wifiReconnecting = false;
+    
+    // If we were in AP mode, we can disable it now
+    if (apModeActive) {
+        Serial.println("[WiFi] Disabling AP mode - connected to network");
+        apModeActive = false;
+        WiFi.mode(WIFI_STA);  // Switch back to station-only mode
+    }
+    
+    // Restart mDNS for new IP
+    MDNS.end();
+    if (MDNS.begin(MDNS_HOSTNAME)) {
+        Serial.printf("[mDNS] Responder started: http://%s.local\n", MDNS_HOSTNAME);
+        MDNS.addService("http", "tcp", 80);
+    }
+}
+
+void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
+    Serial.println("[WiFi] Event: Disconnected!");
+    wifiConnected = false;
+    // Don't take action here - let checkWiFiConnection() handle it
+}
+
+void setupWiFiEvents() {
+    Serial.println("[WiFi] Registering event handlers...");
+    // Register event handlers for automatic WiFi status updates
+    wifiConnectHandler = WiFi.onEvent(onWiFiConnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
+    wifiDisconnectHandler = WiFi.onEvent(onWiFiDisconnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+    Serial.println("[WiFi] Event handlers registered");
+}
+
+void checkWiFiConnection() {
+    unsigned long currentMillis = millis();
+    
+    // Check connection status every 30 seconds (non-critical with event-driven approach)
+    if (currentMillis - lastWiFiCheck < WIFI_CHECK_INTERVAL) {
+        return;
+    }
+    lastWiFiCheck = currentMillis;
+    
+    // If connected, nothing to do (events handle status changes)
+    if (WiFi.status() == WL_CONNECTED) {
+        return;
+    }
+    
+    // If currently reconnecting, check timeout
+    if (wifiReconnecting) {
+        if (currentMillis - reconnectStartTime > RECONNECT_TIMEOUT) {
+            Serial.println("[WiFi] Reconnect timeout - entering AP mode");
+            wifiReconnecting = false;
+            startAPMode();
+        }
+        // Still waiting for connection - event will notify us
+        return;
+    }
+    
+    // If in AP mode
+    if (apModeActive) {
+        int clientCount = WiFi.softAPgetStationNum();
+        
+        if (clientCount > 0) {
+            // Don't try to reconnect while clients are connected
+            lastReconnectAttempt = currentMillis;
+            return;
+        }
+        
+        // Try to reconnect every 60 seconds
+        if (currentMillis - lastReconnectAttempt < RECONNECT_INTERVAL) {
+            return;
+        }
+        
+        Serial.println("[WiFi] No AP clients - attempting reconnect (non-blocking)...");
+        lastReconnectAttempt = currentMillis;
+        wifiReconnecting = true;
+        reconnectStartTime = currentMillis;
+        
+        // NON-BLOCKING: Just initiate connection, event will notify when ready
+        WiFi.mode(WIFI_AP_STA);
+        WiFi.begin();
+        return;
+    }
+    
+    // Not in AP mode, not reconnecting - start reconnection attempt
+    Serial.println("[WiFi] WiFi disconnected - starting reconnect attempt...");
+    wifiReconnecting = true;
+    reconnectStartTime = currentMillis;
+    
+    // NON-BLOCKING: Just initiate, event will fire when connected
+    WiFi.begin();
+    
+    // Give it a brief moment to see if connection is immediate
+    delay(100);
+    
+    // If still not connected after brief check, we'll wait for event
+    // Set a timeout check for next iteration
+}
+
+void startAPMode() {
+    Serial.println("[WiFi] Starting AP mode...");
+    
+    // Start AP mode while keeping STA active
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(AP_NAME, AP_PASSWORD);
+    
+    apModeActive = true;
+    lastReconnectAttempt = millis();
+    
+    IPAddress apIP = WiFi.softAPIP();
+    Serial.println("[WiFi] AP Mode Started");
+    Serial.printf("[WiFi] AP SSID: %s\n", AP_NAME);
+    Serial.printf("[WiFi] AP Password: %s\n", AP_PASSWORD);
+    Serial.printf("[WiFi] AP IP: %s\n", apIP.toString().c_str());
+    Serial.println("[WiFi] Connect to configure WiFi or wait for automatic reconnection attempts");
+    
+    // Restart mDNS to work with AP IP
+    MDNS.end();
+    if (MDNS.begin(MDNS_HOSTNAME)) {
+        Serial.printf("[mDNS] Responder started in AP mode: http://%s.local\n", MDNS_HOSTNAME);
+        MDNS.addService("http", "tcp", 80);
+    }
 }
 
 void setupWiFi() {
@@ -119,6 +272,9 @@ void setupWiFi() {
     Serial.println("WiFi connected!");
     Serial.print("IP address: ");
     Serial.println(WiFi.localIP());
+    
+    wifiConnected = true;  // Mark WiFi as connected
+    apModeActive = false;
     
     // Read MQTT parameters from WiFiManager
     String new_server = custom_mqtt_server.getValue();
@@ -391,6 +547,55 @@ void setupWebServer() {
         serializeJson(doc, output);
         request->send(200, "application/json", output);
     });
+    
+    // API: Get WiFi status
+    server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        StaticJsonDocument<512> doc;
+        
+        doc["connected"] = (WiFi.status() == WL_CONNECTED);
+        doc["ap_mode"] = apModeActive;
+        doc["ssid"] = WiFi.SSID();
+        doc["ip"] = WiFi.localIP().toString();
+        doc["rssi"] = WiFi.RSSI();
+        
+        if (apModeActive) {
+            doc["ap_ssid"] = AP_NAME;
+            doc["ap_ip"] = WiFi.softAPIP().toString();
+            doc["ap_clients"] = WiFi.softAPgetStationNum();
+        }
+        
+        String output;
+        serializeJson(doc, output);
+        request->send(200, "application/json", output);
+    });
+    
+    // API: Reconfigure WiFi (useful when in AP mode)
+    server.on("/api/wifi/reconfigure", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+            StaticJsonDocument<512> doc;
+            DeserializationError error = deserializeJson(doc, (char*)data);
+            
+            if (error) {
+                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+                return;
+            }
+            
+            String new_ssid = doc["ssid"].as<String>();
+            String new_password = doc["password"].as<String>();
+            
+            if (new_ssid.length() == 0) {
+                request->send(400, "application/json", "{\"error\":\"SSID required\"}");
+                return;
+            }
+            
+            request->send(200, "application/json", "{\"success\":true,\"message\":\"Connecting to new WiFi...\"}");
+            
+            // Save new credentials and reconnect
+            WiFi.begin(new_ssid.c_str(), new_password.c_str());
+            
+            Serial.printf("[WiFi] Attempting to connect to: %s\n", new_ssid.c_str());
+        }
+    );
     
     // API: Reset WiFi settings
     server.on("/api/reset", HTTP_POST, [](AsyncWebServerRequest *request) {
