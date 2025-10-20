@@ -6,7 +6,7 @@ The ESP32 now has intelligent WiFi reconnection logic that automatically handles
 ## How It Works
 
 ### 1. **Normal Operation (WiFi Connected)**
-- ESP32 checks WiFi connection status every **5 seconds**
+- ESP32 checks WiFi connection status every **5 seconds** (fast detection)
 - If connected, everything works normally (web server, MQTT, etc.)
 - IP address and status are available via the web interface
 
@@ -14,10 +14,12 @@ The ESP32 now has intelligent WiFi reconnection logic that automatically handles
 When the ESP32 loses WiFi connection (SSID changed, password changed, router offline, etc.):
 
 **Step 1: Initial Reconnection Attempt**
-- ESP32 immediately tries to reconnect to the saved network
-- Waits up to 10 seconds for connection
+- ESP32 immediately tries to reconnect to the saved network (non-blocking)
+- Waits up to **15 seconds** for connection
 - If successful → returns to normal operation
 - If failed → proceeds to AP mode
+
+**Total time to AP mode**: ~20 seconds from disconnection
 
 **Step 2: AP Mode Activation**
 - ESP32 starts Access Point (AP) mode
@@ -30,15 +32,17 @@ When the ESP32 loses WiFi connection (SSID changed, password changed, router off
 ### 3. **Automatic Reconnection Attempts (While in AP Mode)**
 
 **Without AP Clients:**
-- Every **60 seconds**, ESP32 attempts to reconnect to the saved network
-- Tries for 10 seconds
+- Every **30 seconds**, ESP32 attempts to reconnect to the saved network (optimized)
+- Tries for 15 seconds per attempt
 - If successful → exits AP mode and returns to normal operation
-- If failed → stays in AP mode and tries again in 60 seconds
+- If failed → stays in AP mode and tries again in 30 seconds
+- **Attempts continue indefinitely** ♾️ - never stops trying
 
 **With AP Clients Connected:**
-- **Reconnection attempts are PAUSED**
+- **Reconnection attempts are PAUSED** 🛑
 - This prevents disrupting users who are connected to configure WiFi
 - As soon as the last client disconnects, reconnection attempts resume
+- This ensures you can always access the AP to reconfigure
 
 ### 4. **Reconfiguring WiFi**
 

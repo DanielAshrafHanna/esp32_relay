@@ -4,6 +4,29 @@ This document tracks all issues encountered during development and their solutio
 
 ---
 
+## Version 1.4.1 - WiFi Reconnection Speed Improvement (October 2025)
+
+### Improvements
+
+#### 1. ⚡ Faster WiFi Reconnection
+**Request**: Speed up WiFi reconnection without blocking code execution
+
+**Changes**:
+- Reduced detection interval: 30s → 5s (6x faster detection)
+- Reduced reconnection timeout: 30s → 15s (2x faster AP mode entry)
+- Reduced retry interval in AP mode: 60s → 30s (2x more frequent attempts)
+
+**Result**:
+- **Total time to AP mode**: ~60 seconds → ~20 seconds (3x faster)
+- **Detection speed**: 30s → 5s (6x faster)
+- **Reconnection attempts**: 60/hour → 120/hour (2x more)
+- Still fully non-blocking ✅
+- AP client pause protection maintained ✅
+
+**Files Modified**: `src/main.cpp`
+
+---
+
 ## Version 1.4 - Performance & Stability (October 2025)
 
 ### Issues Fixed

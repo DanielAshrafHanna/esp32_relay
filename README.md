@@ -1,6 +1,6 @@
 # ESP32 Relay Controller
 
-**Version 1.4** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
+**Version 1.4.1** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
@@ -526,6 +526,13 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 - Password: `Solacepass@123`
 
 ## Version History
+
+- **v1.4.1** - WiFi reconnection speed improvement (October 2025)
+  - Faster WiFi disconnection detection (30s → 5s, 6x faster)
+  - Faster AP mode entry (30s → 15s timeout, 2x faster)
+  - More frequent reconnection attempts (60s → 30s, 2x more)
+  - Total time to AP mode reduced from ~60s to ~20s (3x faster)
+  - Maintains non-blocking operation and AP client protection
 
 - **v1.4** - Performance optimization (October 2025)
   - Optimized MQTT reconnection (48x faster)

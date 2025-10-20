@@ -45,9 +45,9 @@ const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Try reconnecting every 10 s
 // WiFi reconnection management
 unsigned long lastWiFiCheck = 0;
 unsigned long lastReconnectAttempt = 0;
-const unsigned long WIFI_CHECK_INTERVAL = 30000;     // Check WiFi every 30 seconds
-const unsigned long RECONNECT_INTERVAL = 60000;      // Try to reconnect every 60 seconds
-const unsigned long RECONNECT_TIMEOUT = 30000;       // 30 second timeout for reconnection
+const unsigned long WIFI_CHECK_INTERVAL = 5000;      // Check WiFi every 5 seconds (faster detection)
+const unsigned long RECONNECT_INTERVAL = 30000;      // Try to reconnect every 30 seconds (more frequent)
+const unsigned long RECONNECT_TIMEOUT = 15000;       // 15 second timeout for reconnection (faster AP mode)
 bool apModeActive = false;
 bool wifiConnected = false;
 bool wifiReconnecting = false;
@@ -200,7 +200,7 @@ void setupWiFiEvents() {
 void checkWiFiConnection() {
     unsigned long currentMillis = millis();
     
-    // Check connection status every 30 seconds (non-critical with event-driven approach)
+    // Check connection status every 5 seconds (fast detection with event-driven approach)
     if (currentMillis - lastWiFiCheck < WIFI_CHECK_INTERVAL) {
         return;
     }
@@ -214,7 +214,7 @@ void checkWiFiConnection() {
     // If currently reconnecting, check timeout
     if (wifiReconnecting) {
         if (currentMillis - reconnectStartTime > RECONNECT_TIMEOUT) {
-            Serial.println("[WiFi] Reconnect timeout - entering AP mode");
+            Serial.println("[WiFi] Reconnect timeout (15s) - entering AP mode");
             wifiReconnecting = false;
             startAPMode();
         }
@@ -232,7 +232,7 @@ void checkWiFiConnection() {
             return;
         }
         
-        // Try to reconnect every 60 seconds
+        // Try to reconnect every 30 seconds (faster recovery)
         if (currentMillis - lastReconnectAttempt < RECONNECT_INTERVAL) {
             return;
         }
