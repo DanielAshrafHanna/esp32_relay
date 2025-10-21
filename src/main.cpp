@@ -29,13 +29,23 @@ char mqtt_password[40] = "solacepass";
 const char* ADMIN_PASSWORD = "Solacepass@123";
 int activeRelayCount = 16;  // Default to all 16 relays
 
-// RF Receiver settings
+// RF Receiver settings - Multiple codes support
+#define MAX_RF_CODES 10
+
+struct RFCode {
+    char name[32];              // User-defined name
+    unsigned long code;         // RF code value
+    unsigned int bitLength;     // Bit length
+    unsigned int protocol;      // Protocol
+    bool active;                // Is this slot in use
+    unsigned long lastTrigger;  // Last trigger timestamp
+};
+
+RFCode rfCodes[MAX_RF_CODES];
+int rfCodeCount = 0;
 bool rfLearningMode = false;
-unsigned long learnedRFCode = 0;
-unsigned int learnedRFBitLength = 0;
-unsigned int learnedRFProtocol = 0;
-bool rfTriggerActive = false;
-unsigned long rfTriggerStartTime = 0;
+int rfLearningSlot = -1;        // Which slot we're learning for
+char pendingRFName[32] = "";    // Name for code being learned
 
 // MQTT Discovery management
 bool discoveryPublished = false;  // Only publish once per boot unless manually triggered
@@ -75,9 +85,11 @@ void saveRelayStates();
 void restoreRelayStates();
 void setupRFReceiver();
 void checkRFSignal();
-void publishRFTriggerState();
-void saveRFCode();
-void restoreRFCode();
+void publishRFTriggerState(int slot);
+void saveRFCodes();
+void restoreRFCodes();
+int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsigned int protocol);
+void deleteRFCode(int slot);
 bool shouldSaveConfig = false;
 
 void setup() {
@@ -87,9 +99,9 @@ void setup() {
     // Initialize relay control
     relayControl.init();
     
-    // Restore saved relay states and RF code
+    // Restore saved relay states and RF codes
     restoreRelayStates();
-    restoreRFCode();
+    restoreRFCodes();
     
     // Initialize LittleFS for web files
     if (!LittleFS.begin(true)) {
@@ -530,7 +542,7 @@ void publishDiscovery() {
         device["name"] = DEVICE_NAME;
         device["manufacturer"] = "ESP32";
         device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.0.0";
+        device["sw_version"] = "1.1.0";
         
         String output;
         serializeJson(doc, output);
@@ -541,36 +553,50 @@ void publishDiscovery() {
         yield();
     }
     
-    // Publish RF Trigger discovery (binary sensor that auto-resets)
-    if (learnedRFCode != 0) {
-        StaticJsonDocument<1024> doc;
-        
-        String uniqueId = String(MDNS_HOSTNAME) + "_rf_trigger";
-        String stateTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_trigger/state";
-        String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + MDNS_HOSTNAME + "_rf_trigger/config";
-        
-        doc["name"] = "RF Trigger";
-        doc["unique_id"] = uniqueId;
-        doc["state_topic"] = stateTopic;
-        doc["availability_topic"] = availTopic;
-        doc["payload_on"] = "ON";
-        doc["payload_off"] = "OFF";
-        doc["device_class"] = "motion";
-        doc["icon"] = "mdi:remote";
-        doc["off_delay"] = 2;  // Auto-off after 2 seconds
-        
-        JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0] = MDNS_HOSTNAME;
-        device["name"] = DEVICE_NAME;
-        device["manufacturer"] = "ESP32";
-        device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.0.0";
-        
-        String output;
-        serializeJson(doc, output);
-        
-        mqttClient.publish(configTopic.c_str(), output.c_str(), true);
-        Serial.println("[MQTT] RF Trigger discovery published");
+    // Publish RF Trigger discovery for each learned code (binary sensors that auto-reset)
+    for (int i = 0; i < MAX_RF_CODES; i++) {
+        if (rfCodes[i].active && rfCodes[i].code != 0) {
+            StaticJsonDocument<1024> doc;
+            
+            // Create safe entity ID from name (lowercase, no spaces)
+            String entityId = String(rfCodes[i].name);
+            entityId.toLowerCase();
+            entityId.replace(" ", "_");
+            entityId.replace("-", "_");
+            
+            String uniqueId = String(MDNS_HOSTNAME) + "_rf_" + entityId;
+            String stateTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_" + String(i) + "/state";
+            String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + MDNS_HOSTNAME + "_rf_" + String(i) + "/config";
+            
+            doc["name"] = String("RF ") + rfCodes[i].name;
+            doc["unique_id"] = uniqueId;
+            doc["state_topic"] = stateTopic;
+            doc["availability_topic"] = availTopic;
+            doc["payload_on"] = "ON";
+            doc["payload_off"] = "OFF";
+            doc["device_class"] = "motion";
+            doc["icon"] = "mdi:remote";
+            doc["off_delay"] = 2;  // Auto-off after 2 seconds
+            
+            JsonObject device = doc["device"].to<JsonObject>();
+            device["identifiers"][0] = MDNS_HOSTNAME;
+            device["name"] = DEVICE_NAME;
+            device["manufacturer"] = "ESP32";
+            device["model"] = "16-Channel Relay Controller";
+            device["sw_version"] = "1.0.0";
+            
+            String output;
+            serializeJson(doc, output);
+            
+            mqttClient.publish(configTopic.c_str(), output.c_str(), true);
+            yield();
+            
+            Serial.printf("[MQTT] RF '%s' discovery published (slot %d)\n", rfCodes[i].name, i);
+        }
+    }
+    
+    if (rfCodeCount > 0) {
+        Serial.printf("[MQTT] Published %d RF trigger entities\n", rfCodeCount);
     }
     
     Serial.printf("[MQTT] Discovery complete for %d relays\n", activeRelayCount);
@@ -852,43 +878,112 @@ void setupWebServer() {
         }
     );
     
-    // API: Get RF status
-    server.on("/api/rf/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        StaticJsonDocument<256> doc;
+    // API: Get all RF codes
+    server.on("/api/rf/codes", HTTP_GET, [](AsyncWebServerRequest *request) {
+        StaticJsonDocument<2048> doc;
         doc["learning_mode"] = rfLearningMode;
-        doc["code_learned"] = (learnedRFCode != 0);
-        doc["rf_code"] = String(learnedRFCode);
-        doc["bit_length"] = learnedRFBitLength;
-        doc["protocol"] = learnedRFProtocol;
-        doc["trigger_active"] = rfTriggerActive;
+        doc["count"] = rfCodeCount;
+        doc["max_codes"] = MAX_RF_CODES;
+        
+        JsonArray codes = doc["codes"].to<JsonArray>();
+        for (int i = 0; i < MAX_RF_CODES; i++) {
+            if (rfCodes[i].active) {
+                JsonObject code = codes.createNestedObject();
+                code["slot"] = i;
+                code["name"] = rfCodes[i].name;
+                code["code"] = String(rfCodes[i].code);
+                code["bit_length"] = rfCodes[i].bitLength;
+                code["protocol"] = rfCodes[i].protocol;
+                code["last_trigger"] = rfCodes[i].lastTrigger;
+            }
+        }
         
         String output;
         serializeJson(doc, output);
         request->send(200, "application/json", output);
     });
     
-    // API: Start RF learning mode
+    // API: Get RF status (legacy - kept for compatibility)
+    server.on("/api/rf/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+        StaticJsonDocument<256> doc;
+        doc["learning_mode"] = rfLearningMode;
+        doc["code_count"] = rfCodeCount;
+        doc["max_codes"] = MAX_RF_CODES;
+        
+        String output;
+        serializeJson(doc, output);
+        request->send(200, "application/json", output);
+    });
+    
+    // API: Start RF learning mode with name
     server.on("/api/rf/learn", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (rfCodeCount >= MAX_RF_CODES) {
+            request->send(400, "application/json", "{\"error\":\"Maximum codes reached\"}");
+            return;
+        }
+        
+        // Get name parameter (required)
+        if (!request->hasParam("name", true)) {
+            request->send(400, "application/json", "{\"error\":\"Name parameter required\"}");
+            return;
+        }
+        
+        String name = request->getParam("name", true)->value();
+        if (name.length() == 0 || name.length() >= 32) {
+            request->send(400, "application/json", "{\"error\":\"Name must be 1-31 characters\"}");
+            return;
+        }
+        
+        // Store name for when code is learned
+        strncpy(pendingRFName, name.c_str(), sizeof(pendingRFName) - 1);
+        pendingRFName[sizeof(pendingRFName) - 1] = '\0';
+        
         rfLearningMode = true;
-        Serial.println("[RF] Learning mode activated - press transmitter button");
+        Serial.printf("[RF] Learning mode activated for '%s' - press transmitter button\n", pendingRFName);
         request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode activated\"}");
     });
     
     // API: Stop RF learning mode
     server.on("/api/rf/stop", HTTP_POST, [](AsyncWebServerRequest *request) {
         rfLearningMode = false;
+        rfLearningSlot = -1;
+        pendingRFName[0] = '\0';
         Serial.println("[RF] Learning mode deactivated");
         request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode deactivated\"}");
     });
     
-    // API: Clear learned RF code
+    // API: Delete specific RF code
+    server.on("/api/rf/delete", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("slot", true)) {
+            request->send(400, "application/json", "{\"error\":\"Slot parameter required\"}");
+            return;
+        }
+        
+        int slot = request->getParam("slot", true)->value().toInt();
+        if (slot < 0 || slot >= MAX_RF_CODES) {
+            request->send(400, "application/json", "{\"error\":\"Invalid slot\"}");
+            return;
+        }
+        
+        if (!rfCodes[slot].active) {
+            request->send(404, "application/json", "{\"error\":\"Slot is empty\"}");
+            return;
+        }
+        
+        deleteRFCode(slot);
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"RF code deleted\"}");
+    });
+    
+    // API: Clear all RF codes
     server.on("/api/rf/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
-        learnedRFCode = 0;
-        learnedRFBitLength = 0;
-        learnedRFProtocol = 0;
-        saveRFCode();
-        Serial.println("[RF] Learned code cleared");
-        request->send(200, "application/json", "{\"success\":true,\"message\":\"RF code cleared\"}");
+        for (int i = 0; i < MAX_RF_CODES; i++) {
+            rfCodes[i].active = false;
+            rfCodes[i].code = 0;
+        }
+        rfCodeCount = 0;
+        saveRFCodes();
+        Serial.println("[RF] All codes cleared");
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"All RF codes cleared\"}");
     });
     
     // API: Force MQTT discovery republish (manual trigger)
@@ -1012,11 +1107,10 @@ void setupRFReceiver() {
     rfReceiver.enableReceive(digitalPinToInterrupt(RF_RECEIVER_PIN));
     Serial.printf("[RF] Receiver initialized on GPIO %d\n", RF_RECEIVER_PIN);
     
-    if (learnedRFCode != 0) {
-        Serial.printf("[RF] Learned code loaded: %lu (bit: %d, protocol: %d)\n", 
-                     learnedRFCode, learnedRFBitLength, learnedRFProtocol);
+    if (rfCodeCount > 0) {
+        Serial.printf("[RF] %d code(s) loaded\n", rfCodeCount);
     } else {
-        Serial.println("[RF] No code learned yet");
+        Serial.println("[RF] No codes learned yet");
     }
 }
 
@@ -1027,79 +1121,153 @@ void checkRFSignal() {
         unsigned int protocol = rfReceiver.getReceivedProtocol();
         
         if (receivedCode != 0) {
-            // Learning mode - capture the signal
+            // Learning mode - capture the signal and add to array
             if (rfLearningMode) {
-                learnedRFCode = receivedCode;
-                learnedRFBitLength = bitLength;
-                learnedRFProtocol = protocol;
+                int newSlot = addRFCode(pendingRFName, receivedCode, bitLength, protocol);
                 rfLearningMode = false;
                 
-                Serial.printf("[RF] Code learned: %lu (bit: %d, protocol: %d)\n", 
-                             receivedCode, bitLength, protocol);
+                if (newSlot >= 0) {
+                    Serial.printf("[RF] Code learned '%s': %lu (bit: %d, protocol: %d) in slot %d\n", 
+                                 pendingRFName, receivedCode, bitLength, protocol, newSlot);
+                    Serial.println("[RF] Use /api/mqtt/rediscover to update HA entities, or reboot.");
+                } else {
+                    Serial.println("[RF] ERROR: Failed to add code (array full)");
+                }
                 
-                // Save to preferences
-                saveRFCode();
-                
-                // Mark for discovery republish (will happen on next reboot or manual trigger)
-                Serial.println("[RF] Code learned. Use /api/mqtt/rediscover to update HA entities, or reboot.");
+                pendingRFName[0] = '\0';  // Clear pending name
             }
-            // Normal mode - check if it matches learned code
-            else if (receivedCode == learnedRFCode && 
-                     bitLength == learnedRFBitLength && 
-                     protocol == learnedRFProtocol) {
-                
-                Serial.println("[RF] Learned signal detected!");
-                
-                // Activate trigger
-                rfTriggerActive = true;
-                rfTriggerStartTime = millis();
-                
-                // Publish ON state to MQTT
-                publishRFTriggerState();
+            // Normal mode - check if it matches any learned code
+            else {
+                for (int i = 0; i < MAX_RF_CODES; i++) {
+                    if (rfCodes[i].active && 
+                        rfCodes[i].code == receivedCode && 
+                        rfCodes[i].bitLength == bitLength && 
+                        rfCodes[i].protocol == protocol) {
+                        
+                        Serial.printf("[RF] Trigger detected '%s': %lu (slot %d)\n", 
+                                     rfCodes[i].name, receivedCode, i);
+                        
+                        // Update last trigger time
+                        rfCodes[i].lastTrigger = millis();
+                        
+                        // Publish state to MQTT
+                        publishRFTriggerState(i);
+                        
+                        break;  // Only trigger first match
+                    }
+                }
             }
         }
         
         rfReceiver.resetAvailable();
     }
-    
-    // Auto-off after 2 seconds
-    if (rfTriggerActive && (millis() - rfTriggerStartTime >= RF_TRIGGER_DURATION)) {
-        rfTriggerActive = false;
-        Serial.println("[RF] Trigger auto-off");
-        publishRFTriggerState();
-    }
 }
 
-void publishRFTriggerState() {
+void publishRFTriggerState(int slot) {
     if (!mqttClient.connected()) return;
+    if (slot < 0 || slot >= MAX_RF_CODES || !rfCodes[slot].active) return;
     
-    String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_trigger/state";
-    String state = rfTriggerActive ? "ON" : "OFF";
+    String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_" + String(slot) + "/state";
     
-    mqttClient.publish(topic.c_str(), state.c_str(), true);
-    Serial.printf("[RF] Published trigger state: %s\n", state.c_str());
+    // Publish ON
+    mqttClient.publish(topic.c_str(), "ON", true);
+    Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
+    yield();
+    
+    // Auto-publish OFF after 2 seconds (Home Assistant will handle off_delay)
+    // We still publish to ensure state consistency
+    delay(RF_TRIGGER_DURATION);
+    mqttClient.publish(topic.c_str(), "OFF", true);
+    Serial.printf("[MQTT] RF '%s' (slot %d): OFF\n", rfCodes[slot].name, slot);
 }
 
-void saveRFCode() {
+void saveRFCodes() {
     preferences.begin("relay-states", false);
-    preferences.putULong("rf_code", learnedRFCode);
-    preferences.putUInt("rf_bits", learnedRFBitLength);
-    preferences.putUInt("rf_proto", learnedRFProtocol);
+    preferences.putBytes("rf_codes", rfCodes, sizeof(rfCodes));
+    preferences.putInt("rf_count", rfCodeCount);
     preferences.end();
     
-    Serial.println("[RF] Code saved to preferences");
+    Serial.printf("[RF] %d codes saved to preferences\n", rfCodeCount);
 }
 
-void restoreRFCode() {
+void restoreRFCodes() {
     preferences.begin("relay-states", true);
-    learnedRFCode = preferences.getULong("rf_code", 0);
-    learnedRFBitLength = preferences.getUInt("rf_bits", 0);
-    learnedRFProtocol = preferences.getUInt("rf_proto", 0);
-    preferences.end();
     
-    if (learnedRFCode != 0) {
-        Serial.printf("[RF] Code restored: %lu (bit: %d, protocol: %d)\n", 
-                     learnedRFCode, learnedRFBitLength, learnedRFProtocol);
+    // Initialize array
+    memset(rfCodes, 0, sizeof(rfCodes));
+    rfCodeCount = 0;
+    
+    // Try to restore new multi-code format
+    size_t len = preferences.getBytesLength("rf_codes");
+    if (len == sizeof(rfCodes)) {
+        preferences.getBytes("rf_codes", rfCodes, sizeof(rfCodes));
+        rfCodeCount = preferences.getInt("rf_count", 0);
+        
+        if (rfCodeCount > 0) {
+            Serial.printf("[RF] Restored %d codes from preferences\n", rfCodeCount);
+            for (int i = 0; i < MAX_RF_CODES; i++) {
+                if (rfCodes[i].active) {
+                    Serial.printf("  [%d] '%s': %lu\n", i, rfCodes[i].name, rfCodes[i].code);
+                }
+            }
+        }
+    } else {
+        // Migration: Try to restore old single code format
+        unsigned long oldCode = preferences.getULong("rf_code", 0);
+        if (oldCode != 0) {
+            unsigned int oldBits = preferences.getUInt("rf_bits", 0);
+            unsigned int oldProto = preferences.getUInt("rf_proto", 0);
+            
+            // Migrate to new format
+            rfCodes[0].active = true;
+            strncpy(rfCodes[0].name, "RF Signal 1", sizeof(rfCodes[0].name) - 1);
+            rfCodes[0].code = oldCode;
+            rfCodes[0].bitLength = oldBits;
+            rfCodes[0].protocol = oldProto;
+            rfCodes[0].lastTrigger = 0;
+            rfCodeCount = 1;
+            
+            Serial.println("[RF] Migrated old single code to slot 0");
+            saveRFCodes();  // Save in new format
+        }
+    }
+    
+    preferences.end();
+}
+
+int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsigned int protocol) {
+    if (rfCodeCount >= MAX_RF_CODES) {
+        return -1;  // Array full
+    }
+    
+    // Find first empty slot
+    for (int i = 0; i < MAX_RF_CODES; i++) {
+        if (!rfCodes[i].active) {
+            rfCodes[i].active = true;
+            strncpy(rfCodes[i].name, name, sizeof(rfCodes[i].name) - 1);
+            rfCodes[i].name[sizeof(rfCodes[i].name) - 1] = '\0';
+            rfCodes[i].code = code;
+            rfCodes[i].bitLength = bitLength;
+            rfCodes[i].protocol = protocol;
+            rfCodes[i].lastTrigger = 0;
+            rfCodeCount++;
+            
+            saveRFCodes();
+            return i;
+        }
+    }
+    
+    return -1;  // Should never reach here
+}
+
+void deleteRFCode(int slot) {
+    if (slot >= 0 && slot < MAX_RF_CODES && rfCodes[slot].active) {
+        rfCodes[slot].active = false;
+        rfCodes[slot].code = 0;
+        rfCodeCount--;
+        
+        saveRFCodes();
+        Serial.printf("[RF] Deleted code from slot %d\n", slot);
     }
 }
 

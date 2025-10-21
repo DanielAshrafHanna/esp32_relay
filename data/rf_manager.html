@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RF Manager - ESP32 Relay Controller</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+        
+        .section h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        
+        .learn-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        
+        .status.learning {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffc107;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #dc3545;
+        }
+        
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 2px solid #17a2b8;
+        }
+        
+        .code-list {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .code-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid #e9ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .code-info {
+            flex: 1;
+        }
+        
+        .code-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        
+        .code-details {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .code-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .empty-state svg {
+            width: 60px;
+            height: 60px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            
+            .learn-form {
+                flex-direction: column;
+            }
+            
+            .code-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .code-actions {
+                width: 100%;
+            }
+            
+            .code-actions .btn {
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Back to Relays</a>
+        
+        <h1>RF Signal Manager</h1>
+        <p class="subtitle">Learn and manage 433MHz RF remote signals (Max: 10)</p>
+        
+        <!-- Learn New Signal -->
+        <div class="section">
+            <h2>Learn New Signal</h2>
+            
+            <div id="statusMessage" style="display: none;"></div>
+            
+            <div class="learn-form">
+                <input 
+                    type="text" 
+                    id="signalName" 
+                    placeholder="Enter signal name (e.g., 'Garage Door', 'Light 1')"
+                    maxlength="31"
+                >
+                <button class="btn btn-primary" id="startLearningBtn" onclick="startLearning()">
+                    Start Learning
+                </button>
+                <button class="btn btn-secondary" id="stopLearningBtn" onclick="stopLearning()" style="display: none;">
+                    Stop Learning
+                </button>
+            </div>
+            
+            <div id="learningStatus" style="display: none;" class="status learning">
+                <div class="spinner"></div> Waiting for RF signal... Press your remote button now.
+            </div>
+        </div>
+        
+        <!-- Saved Signals -->
+        <div class="section">
+            <h2>Saved Signals (<span id="codeCount">0</span>/10)</h2>
+            
+            <div id="codeList" class="code-list">
+                <div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,6V13H12.5L16.5,18H14.5L11,13.5V18H9V6H11Z"/>
+                    </svg>
+                    <p>No signals learned yet</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Clear All -->
+        <div style="text-align: center;">
+            <button class="btn btn-danger" onclick="clearAllCodes()" id="clearAllBtn" style="display: none;">
+                Clear All Signals
+            </button>
+        </div>
+    </div>
+    
+    <script>
+        let isLearning = false;
+        let pollingInterval = null;
+        
+        // Load codes on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadCodes();
+        });
+        
+        async function loadCodes() {
+            try {
+                const response = await fetch('/api/rf/codes');
+                const data = await response.json();
+                
+                displayCodes(data);
+            } catch (error) {
+                showMessage('Failed to load codes: ' + error.message, 'error');
+            }
+        }
+        
+        function displayCodes(data) {
+            const codeList = document.getElementById('codeList');
+            const codeCount = document.getElementById('codeCount');
+            const clearAllBtn = document.getElementById('clearAllBtn');
+            
+            codeCount.textContent = data.count || 0;
+            
+            if (!data.codes || data.codes.length === 0) {
+                codeList.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,6V13H12.5L16.5,18H14.5L11,13.5V18H9V6H11Z"/>
+                        </svg>
+                        <p>No signals learned yet</p>
+                    </div>
+                `;
+                clearAllBtn.style.display = 'none';
+            } else {
+                codeList.innerHTML = data.codes.map(code => `
+                    <div class="code-item">
+                        <div class="code-info">
+                            <div class="code-name">${escapeHtml(code.name)}</div>
+                            <div class="code-details">
+                                Code: ${code.code} | Bits: ${code.bit_length} | Protocol: ${code.protocol}
+                            </div>
+                        </div>
+                        <div class="code-actions">
+                            <button class="btn btn-danger" onclick="deleteCode(${code.slot})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+                clearAllBtn.style.display = 'inline-block';
+            }
+            
+            // Update learning button state
+            const startBtn = document.getElementById('startLearningBtn');
+            if (data.count >= data.max_codes) {
+                startBtn.disabled = true;
+                startBtn.textContent = 'Maximum Reached';
+            } else {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start Learning';
+            }
+        }
+        
+        async function startLearning() {
+            const nameInput = document.getElementById('signalName');
+            const name = nameInput.value.trim();
+            
+            if (!name) {
+                showMessage('Please enter a name for the signal', 'error');
+                nameInput.focus();
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('name', name);
+                
+                const response = await fetch('/api/rf/learn', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    isLearning = true;
+                    document.getElementById('learningStatus').style.display = 'block';
+                    document.getElementById('startLearningBtn').style.display = 'none';
+                    document.getElementById('stopLearningBtn').style.display = 'inline-block';
+                    nameInput.disabled = true;
+                    
+                    // Start polling for learning completion
+                    pollingInterval = setInterval(checkLearningStatus, 500);
+                } else {
+                    showMessage(data.error || 'Failed to start learning mode', 'error');
+                }
+            } catch (error) {
+                showMessage('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function stopLearning() {
+            try {
+                await fetch('/api/rf/stop', { method: 'POST' });
+                
+                isLearning = false;
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                }
+                
+                document.getElementById('learningStatus').style.display = 'none';
+                document.getElementById('startLearningBtn').style.display = 'inline-block';
+                document.getElementById('stopLearningBtn').style.display = 'none';
+                document.getElementById('signalName').disabled = false;
+                document.getElementById('signalName').value = '';
+                
+                showMessage('Learning mode stopped', 'info');
+            } catch (error) {
+                showMessage('Failed to stop learning: ' + error.message, 'error');
+            }
+        }
+        
+        async function checkLearningStatus() {
+            try {
+                const response = await fetch('/api/rf/status');
+                const data = await response.json();
+                
+                // If learning mode is off but we thought it was on, learning completed
+                if (!data.learning_mode && isLearning) {
+                    isLearning = false;
+                    clearInterval(pollingInterval);
+                    pollingInterval = null;
+                    
+                    document.getElementById('learningStatus').style.display = 'none';
+                    document.getElementById('startLearningBtn').style.display = 'inline-block';
+                    document.getElementById('stopLearningBtn').style.display = 'none';
+                    document.getElementById('signalName').disabled = false;
+                    document.getElementById('signalName').value = '';
+                    
+                    showMessage('Signal learned successfully!', 'success');
+                    
+                    // Reload codes
+                    loadCodes();
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }
+        
+        async function deleteCode(slot) {
+            if (!confirm('Are you sure you want to delete this signal?')) {
+                return;
+            }
+            
+            try {
+                const formData = new URLSearchParams();
+                formData.append('slot', slot);
+                
+                const response = await fetch('/api/rf/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage('Signal deleted successfully', 'success');
+                    loadCodes();
+                } else {
+                    showMessage(data.error || 'Failed to delete signal', 'error');
+                }
+            } catch (error) {
+                showMessage('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function clearAllCodes() {
+            if (!confirm('Are you sure you want to clear ALL learned signals? This cannot be undone!')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/rf/clear', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage('All signals cleared successfully', 'success');
+                    loadCodes();
+                } else {
+                    showMessage(data.error || 'Failed to clear signals', 'error');
+                }
+            } catch (error) {
+                showMessage('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        function showMessage(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
+
