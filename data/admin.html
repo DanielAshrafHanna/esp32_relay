@@ -267,6 +267,12 @@
                 <small style="color: #666;">Leave unchanged to keep current password</small>
             </div>
 
+            <div class="form-group">
+                <label for="mqtt-hostname">MQTT Hostname</label>
+                <input type="text" id="mqtt-hostname" placeholder="esp32-relay" class="form-input">
+                <small style="color: #666;">Used for MQTT topics (e.g., homeassistant/switch/<strong>hostname</strong>/relay1)</small>
+            </div>
+
             <button class="btn-save" onclick="saveMQTT()" style="margin-bottom: 30px;">💾 Save MQTT Settings</button>
         </div>
 
@@ -337,6 +343,7 @@
                 document.getElementById('mqtt-port').value = data.mqtt_port || 1883;
                 document.getElementById('mqtt-user').value = data.mqtt_user || '';
                 document.getElementById('mqtt-password').value = data.mqtt_password || '';
+                document.getElementById('mqtt-hostname').value = data.mqtt_hostname || 'esp32-relay';
                 
                 // Select the current relay count option
                 const option = document.querySelector(`.option-card[data-value="${currentConfig}"]`);
@@ -403,6 +410,7 @@
             const mqttPort = parseInt(document.getElementById('mqtt-port').value);
             const mqttUser = document.getElementById('mqtt-user').value.trim();
             const mqttPassword = document.getElementById('mqtt-password').value;
+            const mqttHostname = document.getElementById('mqtt-hostname').value.trim() || 'esp32-relay';
 
             if (!mqttServer || !mqttPort) {
                 alert('Please fill in MQTT server and port');
@@ -424,7 +432,8 @@
                         mqtt_server: mqttServer,
                         mqtt_port: mqttPort,
                         mqtt_user: mqttUser,
-                        mqtt_password: mqttPassword
+                        mqtt_password: mqttPassword,
+                        mqtt_hostname: mqttHostname
                     })
                 });
 
