@@ -19,11 +19,12 @@ RelayControl relayControl;
 Preferences preferences;
 RCSwitch rfReceiver = RCSwitch();
 
-// MQTT settings (hardcoded)
+// MQTT settings (hardcoded defaults)
 char mqtt_server[40] = "192.168.68.100";
 char mqtt_port[6] = "1883";
 char mqtt_user[40] = "solacemqtt";
 char mqtt_password[40] = "solacepass";
+char mqtt_hostname[40] = "esp32-relay";  // Configurable MQTT hostname for topics
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
@@ -397,7 +398,8 @@ void setupMQTT() {
     if (strlen(mqtt_server) > 0) {
         mqttClient.setServer(mqtt_server, atoi(mqtt_port));
         mqttClient.setCallback(mqttCallback);
-        mqttClient.setBufferSize(1024);  // Increase buffer for discovery messages
+        mqttClient.setBufferSize(1024);  // Buffer for discovery messages (max ~500 bytes each)
+        // Keep-alive (60s) and socket timeout (30s) set via build flags in platformio.ini
         reconnectMQTT();
     } else {
         Serial.println("MQTT server not configured");
@@ -429,7 +431,7 @@ void reconnectMQTT() {
     Serial.print("Attempting MQTT connection...");
     
     String clientId = String(DEVICE_NAME) + "-" + String(ESP.getEfuseMac(), HEX);
-    String availTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/availability";
+    String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
     
     bool connected;
     if (strlen(mqtt_user) > 0) {
@@ -448,7 +450,7 @@ void reconnectMQTT() {
         
         // Subscribe to command topics for each relay
         for (int i = 0; i < NUM_RELAYS; i++) {
-            String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/relay" + String(i + 1) + "/set";
+            String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
             mqttClient.subscribe(topic.c_str());
         }
         Serial.println("Subscribed to command topics");
@@ -490,7 +492,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     // Parse topic to get relay number
     String topicStr = String(topic);
     for (int i = 0; i < NUM_RELAYS; i++) {
-        String expectedTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/relay" + String(i + 1) + "/set";
+        String expectedTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
         if (topicStr == expectedTopic) {
             bool newState = (message == "ON");
             relayControl.setState(i, newState);
@@ -504,7 +506,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void publishState(int relayIndex) {
     if (!mqttClient.connected()) return;
     
-    String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/relay" + String(relayIndex + 1) + "/state";
+    String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(relayIndex + 1) + "/state";
     String state = relayControl.getState(relayIndex) ? "ON" : "OFF";
     mqttClient.publish(topic.c_str(), state.c_str(), true);
 }
@@ -512,18 +514,18 @@ void publishState(int relayIndex) {
 void publishDiscovery() {
     if (!mqttClient.connected()) return;
     
-    String availTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/availability";
+    String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
     
     Serial.printf("[MQTT] Publishing discovery for %d relays\n", activeRelayCount);
     
     for (int i = 0; i < activeRelayCount; i++) {
         StaticJsonDocument<1024> doc;
         
-        String uniqueId = String(MDNS_HOSTNAME) + "_relay" + String(i + 1);
+        String uniqueId = String(mqtt_hostname) + "_relay" + String(i + 1);
         String name = String(RELAY_NAMES[i]);
-        String stateTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/relay" + String(i + 1) + "/state";
-        String commandTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/relay" + String(i + 1) + "/set";
-        String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/switch/" + MDNS_HOSTNAME + "_relay" + String(i + 1) + "/config";
+        String stateTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/state";
+        String commandTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
+        String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/switch/" + mqtt_hostname + "_relay" + String(i + 1) + "/config";
         
         doc["name"] = name;
         doc["unique_id"] = uniqueId;
@@ -538,19 +540,21 @@ void publishDiscovery() {
         doc["icon"] = "mdi:electric-switch";
         
         JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0] = MDNS_HOSTNAME;
+        device["identifiers"][0] = mqtt_hostname;
         device["name"] = DEVICE_NAME;
         device["manufacturer"] = "ESP32";
         device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.1.0";
+        device["sw_version"] = "1.2.0";
         
         String output;
         serializeJson(doc, output);
         
         mqttClient.publish(configTopic.c_str(), output.c_str(), true);
         
-        // Yield to prevent blocking (no delays!)
+        // Keep connection alive during discovery
         yield();
+        mqttClient.loop();
+        delay(50);  // Small delay to prevent broker overflow
     }
     
     // Publish RF Trigger discovery for each learned code (binary sensors that auto-reset)
@@ -564,9 +568,9 @@ void publishDiscovery() {
             entityId.replace(" ", "_");
             entityId.replace("-", "_");
             
-            String uniqueId = String(MDNS_HOSTNAME) + "_rf_" + entityId;
-            String stateTopic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_" + String(i) + "/state";
-            String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + MDNS_HOSTNAME + "_rf_" + String(i) + "/config";
+            String uniqueId = String(mqtt_hostname) + "_rf_" + entityId;
+            String stateTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(i) + "/state";
+            String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + mqtt_hostname + "_rf_" + String(i) + "/config";
             
             doc["name"] = String("RF ") + rfCodes[i].name;
             doc["unique_id"] = uniqueId;
@@ -579,17 +583,21 @@ void publishDiscovery() {
             doc["off_delay"] = 2;  // Auto-off after 2 seconds
             
             JsonObject device = doc["device"].to<JsonObject>();
-            device["identifiers"][0] = MDNS_HOSTNAME;
+            device["identifiers"][0] = mqtt_hostname;
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
             device["model"] = "16-Channel Relay Controller";
-            device["sw_version"] = "1.0.0";
+            device["sw_version"] = "1.2.0";
             
             String output;
             serializeJson(doc, output);
             
             mqttClient.publish(configTopic.c_str(), output.c_str(), true);
+            
+            // Keep connection alive during discovery
             yield();
+            mqttClient.loop();
+            delay(50);
             
             Serial.printf("[MQTT] RF '%s' discovery published (slot %d)\n", rfCodes[i].name, i);
         }
@@ -772,6 +780,7 @@ void setupWebServer() {
         doc["mqtt_server"] = mqtt_server;
         doc["mqtt_port"] = atoi(mqtt_port);
         doc["mqtt_user"] = mqtt_user;
+        doc["mqtt_hostname"] = mqtt_hostname;
         // Don't send password for security
         doc["mqtt_password"] = "••••••••";
         
@@ -838,6 +847,7 @@ void setupWebServer() {
             int new_port = doc["mqtt_port"];
             String new_user = doc["mqtt_user"].as<String>();
             String new_password = doc["mqtt_password"].as<String>();
+            String new_hostname = doc["mqtt_hostname"].as<String>();
             
             // Validate inputs
             if (new_server.length() == 0 || new_port < 1 || new_port > 65535) {
@@ -845,11 +855,17 @@ void setupWebServer() {
                 return;
             }
             
+            // Validate hostname - use default if empty or too long
+            if (new_hostname.length() == 0 || new_hostname.length() > 39) {
+                new_hostname = "esp32-relay";
+            }
+            
             // Save to preferences
             preferences.begin("relay-states", false);
             preferences.putString("mqtt_server", new_server);
             preferences.putString("mqtt_port", String(new_port));
             preferences.putString("mqtt_user", new_user);
+            preferences.putString("mqtt_hostname", new_hostname);
             
             // Only save password if it's not the placeholder
             if (new_password != "••••••••") {
@@ -862,6 +878,7 @@ void setupWebServer() {
             new_server.toCharArray(mqtt_server, 40);
             String(new_port).toCharArray(mqtt_port, 6);
             new_user.toCharArray(mqtt_user, 40);
+            new_hostname.toCharArray(mqtt_hostname, 40);
             if (new_password != "••••••••") {
                 new_password.toCharArray(mqtt_password, 40);
             }
@@ -869,6 +886,7 @@ void setupWebServer() {
             Serial.println("[Admin] MQTT settings updated");
             Serial.printf("  Server: %s:%d\n", mqtt_server, new_port);
             Serial.printf("  User: %s\n", mqtt_user);
+            Serial.printf("  Hostname: %s\n", mqtt_hostname);
             
             request->send(200, "application/json", "{\"success\":true}");
             
@@ -1085,7 +1103,10 @@ void restoreRelayStates() {
         saved_user.toCharArray(mqtt_user, 40);
         String saved_pass = preferences.getString("mqtt_pass", "");
         saved_pass.toCharArray(mqtt_password, 40);
+        String saved_hostname = preferences.getString("mqtt_hostname", "esp32-relay");
+        saved_hostname.toCharArray(mqtt_hostname, 40);
         Serial.println("[Storage] MQTT settings loaded from preferences");
+        Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
     } else {
         Serial.println("[Storage] Using hardcoded MQTT settings");
     }
@@ -1167,16 +1188,20 @@ void publishRFTriggerState(int slot) {
     if (!mqttClient.connected()) return;
     if (slot < 0 || slot >= MAX_RF_CODES || !rfCodes[slot].active) return;
     
-    String topic = String(MQTT_TOPIC_PREFIX) + MDNS_HOSTNAME + "/rf_" + String(slot) + "/state";
+    String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(slot) + "/state";
     
     // Publish ON
     mqttClient.publish(topic.c_str(), "ON", true);
     Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
-    yield();
     
-    // Auto-publish OFF after 2 seconds (Home Assistant will handle off_delay)
-    // We still publish to ensure state consistency
-    delay(RF_TRIGGER_DURATION);
+    // Non-blocking delay - call loop during wait to maintain MQTT connection
+    unsigned long start = millis();
+    while (millis() - start < RF_TRIGGER_DURATION) {
+        mqttClient.loop();  // Keep MQTT alive during the wait
+        yield();
+        delay(10);
+    }
+    
     mqttClient.publish(topic.c_str(), "OFF", true);
     Serial.printf("[MQTT] RF '%s' (slot %d): OFF\n", rfCodes[slot].name, slot);
 }

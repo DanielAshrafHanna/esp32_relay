@@ -1,6 +1,6 @@
 # ESP32 Relay Controller
 
-**Version 1.4.1** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
+**Version 1.2** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
@@ -76,6 +76,26 @@ Optional - RF Receiver:
 > 
 > **If webpage doesn't work**, you probably forgot step 1!
 > Error: `/littlefs/index.html does not exist` = filesystem not uploaded
+
+> **📦 ALTERNATIVE: Upload via .bin Files**
+> 
+> If flashing via bin files instead of PlatformIO commands, you need **two files**:
+> 
+> | File | Address | Build Command |
+> |------|---------|---------------|
+> | `firmware.bin` | `0x10000` | `pio run` |
+> | `littlefs.bin` | `0x290000` | `pio run --target buildfs` |
+> 
+> **Flash with esptool:**
+> ```bash
+> esptool.py --chip esp32 --port YOUR_PORT write_flash 0x10000 firmware.bin 0x290000 littlefs.bin
+> ```
+> 
+> **Note:** If updating an existing device, you only need these two files. For a fresh ESP32, also include:
+> - `bootloader.bin` at `0x1000`
+> - `partitions.bin` at `0x8000`
+> 
+> Find all files in: `.pio/build/esp32dev/`
 
 1. **Clone or download this project**
 
