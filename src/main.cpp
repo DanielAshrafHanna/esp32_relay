@@ -51,14 +51,16 @@ char pendingRFName[32] = "";    // Name for code being learned
 // MQTT Discovery management
 bool discoveryPublished = false;  // Only publish once per boot unless manually triggered
 unsigned long lastMQTTAttempt = 0;
-const unsigned long MQTT_RETRY_INTERVAL = 10000;  // Try reconnecting every 10 seconds (was 5)
+
+// MQTT Smart Reconnection with Exponential Backoff
+int mqttReconnectAttempts = 0;
+bool mqttCredentialError = false;  // Stop retrying on credential errors
 
 // WiFi reconnection management
 unsigned long lastWiFiCheck = 0;
 unsigned long lastReconnectAttempt = 0;
-const unsigned long WIFI_CHECK_INTERVAL = 5000;      // Check WiFi every 5 seconds (faster detection)
-const unsigned long RECONNECT_INTERVAL = 30000;      // Try to reconnect every 30 seconds (more frequent)
-const unsigned long RECONNECT_TIMEOUT = 15000;       // 15 second timeout for reconnection (faster AP mode)
+const unsigned long WIFI_CHECK_INTERVAL = 5000;      // Check WiFi every 5 seconds (fast detection)
+const unsigned long RECONNECT_TIMEOUT = 10000;       // 10 second timeout per reconnection attempt
 bool apModeActive = false;
 bool wifiConnected = false;
 bool wifiReconnecting = false;
@@ -66,6 +68,12 @@ unsigned long reconnectStartTime = 0;
 bool mdnsInitialized = false;  // Track if mDNS has been set up in setup()
 WiFiEventId_t wifiConnectHandler;
 WiFiEventId_t wifiDisconnectHandler;
+
+// WiFi Smart Reconnection with Fast/Slow phases
+int wifiReconnectAttempts = 0;
+const int WIFI_FAST_ATTEMPTS = 6;                    // 6 fast attempts before AP mode (~1 minute)
+const unsigned long WIFI_FAST_INTERVAL = 10000;      // 10 seconds between fast attempts
+const unsigned long WIFI_SLOW_INTERVAL = 60000;      // 60 seconds between attempts in AP mode
 
 // Function declarations
 void checkWiFiConnection();
@@ -78,6 +86,7 @@ void setupMQTT();
 void setupWebServer();
 void setupMDNS();
 void mqttCallback(char* topic, byte* payload, unsigned int length);
+unsigned long getMqttRetryInterval();
 void reconnectMQTT();
 void publishDiscovery();
 void publishState(int relayIndex);
@@ -163,6 +172,7 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.printf("[WiFi] IP: %s\n", WiFi.localIP().toString().c_str());
     wifiConnected = true;
     wifiReconnecting = false;
+    wifiReconnectAttempts = 0;  // Reset attempt counter on success
     
     // If we were in AP mode, we can disable it now
     if (apModeActive) {
@@ -210,6 +220,19 @@ void setupWiFiEvents() {
     Serial.println("[WiFi] Event handlers registered");
 }
 
+/*
+ * Smart WiFi Reconnection System (v1.3.0)
+ * 
+ * Fast Phase (before AP mode):
+ *   - 6 attempts, 10 seconds apart
+ *   - Each attempt has 10 second timeout
+ *   - Total ~1 minute before AP mode
+ * 
+ * Slow Phase (in AP mode):
+ *   - Attempts every 60 seconds
+ *   - Pauses when AP client is connected
+ *   - Resumes when client disconnects
+ */
 void checkWiFiConnection() {
     unsigned long currentMillis = millis();
     
@@ -227,30 +250,38 @@ void checkWiFiConnection() {
     // If currently reconnecting, check timeout
     if (wifiReconnecting) {
         if (currentMillis - reconnectStartTime > RECONNECT_TIMEOUT) {
-            Serial.println("[WiFi] Reconnect timeout (15s) - entering AP mode");
             wifiReconnecting = false;
-            startAPMode();
+            wifiReconnectAttempts++;
+            
+            Serial.printf("[WiFi] Reconnect attempt %d/%d timed out\n", 
+                         wifiReconnectAttempts, WIFI_FAST_ATTEMPTS);
+            
+            // After WIFI_FAST_ATTEMPTS failed, enter AP mode
+            if (wifiReconnectAttempts >= WIFI_FAST_ATTEMPTS && !apModeActive) {
+                Serial.println("[WiFi] Fast reconnection phase failed - entering AP mode");
+                startAPMode();
+            }
         }
         // Still waiting for connection - event will notify us
         return;
     }
     
-    // If in AP mode
+    // If in AP mode - slow phase with client protection
     if (apModeActive) {
         int clientCount = WiFi.softAPgetStationNum();
         
         if (clientCount > 0) {
-            // Don't try to reconnect while clients are connected
+            // Don't try to reconnect while clients are connected (protects configuration)
             lastReconnectAttempt = currentMillis;
             return;
         }
         
-        // Try to reconnect every 30 seconds (faster recovery)
-        if (currentMillis - lastReconnectAttempt < RECONNECT_INTERVAL) {
+        // Slow interval in AP mode (60 seconds)
+        if (currentMillis - lastReconnectAttempt < WIFI_SLOW_INTERVAL) {
             return;
         }
         
-        Serial.println("[WiFi] No AP clients - attempting reconnect (non-blocking)...");
+        Serial.println("[WiFi] AP mode - attempting reconnect (every 60s)...");
         lastReconnectAttempt = currentMillis;
         wifiReconnecting = true;
         reconnectStartTime = currentMillis;
@@ -261,19 +292,24 @@ void checkWiFiConnection() {
         return;
     }
     
-    // Not in AP mode, not reconnecting - start reconnection attempt
-    Serial.println("[WiFi] WiFi disconnected - starting reconnect attempt...");
+    // Not in AP mode, not reconnecting - determine interval based on attempt count
+    unsigned long reconnectInterval = (wifiReconnectAttempts < WIFI_FAST_ATTEMPTS) 
+        ? WIFI_FAST_INTERVAL 
+        : WIFI_SLOW_INTERVAL;
+    
+    if (currentMillis - lastReconnectAttempt < reconnectInterval) {
+        return;
+    }
+    
+    // Start reconnection attempt
+    Serial.printf("[WiFi] Reconnect attempt %d/%d starting...\n", 
+                 wifiReconnectAttempts + 1, WIFI_FAST_ATTEMPTS);
+    lastReconnectAttempt = currentMillis;
     wifiReconnecting = true;
     reconnectStartTime = currentMillis;
     
     // NON-BLOCKING: Just initiate, event will fire when connected
     WiFi.begin();
-    
-    // Give it a brief moment to see if connection is immediate
-    delay(100);
-    
-    // If still not connected after brief check, we'll wait for event
-    // Set a timeout check for next iteration
 }
 
 void startAPMode() {
@@ -304,17 +340,25 @@ void startAPMode() {
 void setupWiFi() {
     WiFiManager wifiManager;
     
-    // Create custom parameters for MQTT configuration
+    // Reset the save flag before starting
+    shouldSaveConfig = false;
+    
+    // Create custom parameters for MQTT configuration (including hostname)
     WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
     WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, 40);
     WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, 40);
+    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, 40);
     
     // Add all custom parameters to WiFiManager
     wifiManager.addParameter(&custom_mqtt_server);
     wifiManager.addParameter(&custom_mqtt_port);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_password);
+    wifiManager.addParameter(&custom_mqtt_hostname);
+    
+    // Register save callback - this is called when user clicks Save in the portal
+    wifiManager.setSaveConfigCallback(saveConfigCallback);
     
     // Set timeout
     wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
@@ -334,20 +378,29 @@ void setupWiFi() {
     wifiConnected = true;  // Mark WiFi as connected
     apModeActive = false;
     
-    // Read MQTT parameters from WiFiManager
-    String new_server = custom_mqtt_server.getValue();
-    String new_port = custom_mqtt_port.getValue();
-    String new_user = custom_mqtt_user.getValue();
-    String new_password = custom_mqtt_password.getValue();
-    
-    // If MQTT parameters were provided, save them
-    if (new_server.length() > 0) {
+    // Only save MQTT settings if user actually clicked Save in the portal
+    if (shouldSaveConfig) {
+        Serial.println("[WiFiManager] Save triggered - reading new MQTT settings...");
+        
+        // Read MQTT parameters from WiFiManager
+        String new_server = custom_mqtt_server.getValue();
+        String new_port = custom_mqtt_port.getValue();
+        String new_user = custom_mqtt_user.getValue();
+        String new_password = custom_mqtt_password.getValue();
+        String new_hostname = custom_mqtt_hostname.getValue();
+        
+        // Validate hostname - use default if empty
+        if (new_hostname.length() == 0) {
+            new_hostname = "esp32-relay";
+        }
+        
         // Save to preferences
         preferences.begin("relay-states", false);
         preferences.putString("mqtt_server", new_server);
         preferences.putString("mqtt_port", new_port);
         preferences.putString("mqtt_user", new_user);
         preferences.putString("mqtt_pass", new_password);
+        preferences.putString("mqtt_hostname", new_hostname);
         preferences.end();
         
         // Update current variables
@@ -355,14 +408,17 @@ void setupWiFi() {
         new_port.toCharArray(mqtt_port, 6);
         new_user.toCharArray(mqtt_user, 40);
         new_password.toCharArray(mqtt_password, 40);
+        new_hostname.toCharArray(mqtt_hostname, 40);
         
-        Serial.println("[WiFiManager] MQTT settings saved");
+        Serial.println("[WiFiManager] MQTT settings saved:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
         Serial.printf("  User: %s\n", mqtt_user);
+        Serial.printf("  Hostname: %s\n", mqtt_hostname);
     } else {
-        Serial.println("[WiFiManager] Using existing MQTT settings:");
+        Serial.println("[WiFiManager] Using existing MQTT settings (no changes from portal):");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
         Serial.printf("  User: %s\n", mqtt_user);
+        Serial.printf("  Hostname: %s\n", mqtt_hostname);
     }
 }
 
@@ -407,19 +463,46 @@ void setupMQTT() {
 }
 
 /*
- * Optimized MQTT Reconnection
+ * MQTT Retry Interval with Progressive Backoff (v1.3.0)
  * 
  * Strategy:
- * - Publishes discovery ONCE per boot (on first connection)
- * - Subsequent reconnections only publish states (fast, non-blocking)
- * - Manual republish available via /api/mqtt/rediscover
- * - Longer retry interval (10s) to prevent connection storms
+ *   - Attempts 1-3:  Every 10 seconds (fast recovery for temporary issues)
+ *   - Attempts 4-6:  Every 30 seconds (medium interval)
+ *   - Attempts 7-10: Every 60 seconds (slow interval)
+ *   - Attempts 11+:  Every 5 minutes (very slow to reduce broker load)
+ */
+unsigned long getMqttRetryInterval() {
+    if (mqttReconnectAttempts < 3) {
+        return 10000;   // First 3 attempts: 10 seconds
+    } else if (mqttReconnectAttempts < 6) {
+        return 30000;   // Attempts 4-6: 30 seconds
+    } else if (mqttReconnectAttempts < 10) {
+        return 60000;   // Attempts 7-10: 60 seconds
+    } else {
+        return 300000;  // Attempts 11+: 5 minutes
+    }
+}
+
+/*
+ * Smart MQTT Reconnection with Exponential Backoff (v1.3.0)
  * 
- * This prevents blocking delays while maintaining reliability.
+ * Features:
+ * - Progressive backoff to reduce broker load during outages
+ * - Credential error detection (stops retrying on auth failures)
+ * - Discovery published ONCE per boot (on first connection)
+ * - Subsequent reconnections only publish states (fast)
+ * - Manual republish available via /api/mqtt/rediscover
  */
 void reconnectMQTT() {
-    // Use the global lastMQTTAttempt to prevent rapid reconnection attempts
-    if (millis() - lastMQTTAttempt < MQTT_RETRY_INTERVAL) {
+    // Don't retry if credential error was detected
+    if (mqttCredentialError) {
+        return;
+    }
+    
+    // Use progressive backoff interval
+    unsigned long retryInterval = getMqttRetryInterval();
+    
+    if (millis() - lastMQTTAttempt < retryInterval) {
         return;
     }
     lastMQTTAttempt = millis();
@@ -428,7 +511,9 @@ void reconnectMQTT() {
         return;
     }
     
-    Serial.print("Attempting MQTT connection...");
+    mqttReconnectAttempts++;
+    Serial.printf("[MQTT] Connection attempt %d (next retry in %lus if fails)...\n", 
+                 mqttReconnectAttempts, getMqttRetryInterval() / 1000);
     
     String clientId = String(DEVICE_NAME) + "-" + String(ESP.getEfuseMac(), HEX);
     String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
@@ -443,7 +528,10 @@ void reconnectMQTT() {
     }
     
     if (connected) {
-        Serial.println("connected");
+        Serial.println("[MQTT] Connected!");
+        
+        // Reset counters on success
+        mqttReconnectAttempts = 0;
         
         // Publish availability as online
         mqttClient.publish(availTopic.c_str(), "online", true);
@@ -453,7 +541,7 @@ void reconnectMQTT() {
             String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
             mqttClient.subscribe(topic.c_str());
         }
-        Serial.println("Subscribed to command topics");
+        Serial.println("[MQTT] Subscribed to command topics");
         
         // Only publish discovery on FIRST connection after boot
         if (!discoveryPublished) {
@@ -476,8 +564,31 @@ void reconnectMQTT() {
             }
         }
     } else {
-        Serial.print("failed, rc=");
-        Serial.println(mqttClient.state());
+        int rc = mqttClient.state();
+        Serial.printf("[MQTT] Failed, rc=%d ", rc);
+        
+        // Decode error for better diagnostics
+        switch (rc) {
+            case -4: Serial.println("(Connection timeout)"); break;
+            case -3: Serial.println("(Connection lost)"); break;
+            case -2: Serial.println("(Connect failed)"); break;
+            case -1: Serial.println("(Disconnected)"); break;
+            case 1:  Serial.println("(Bad protocol)"); break;
+            case 2:  Serial.println("(Bad client ID)"); break;
+            case 3:  Serial.println("(Server unavailable)"); break;
+            case 4:  Serial.println("(Bad credentials)"); break;
+            case 5:  Serial.println("(Not authorized)"); break;
+            default: Serial.println("(Unknown error)"); break;
+        }
+        
+        // Check for credential errors (won't fix themselves - stop retrying)
+        // PubSubClient: 4 = MQTT_CONNECT_BAD_CREDENTIALS, 5 = MQTT_CONNECT_UNAUTHORIZED
+        if (rc == 4 || rc == 5) {
+            Serial.println("[MQTT] ERROR: Credential/authorization error detected");
+            Serial.println("[MQTT] Stopping reconnection attempts until settings are updated");
+            Serial.println("[MQTT] Please check MQTT username/password in admin panel");
+            mqttCredentialError = true;
+        }
     }
 }
 
@@ -544,7 +655,7 @@ void publishDiscovery() {
         device["name"] = DEVICE_NAME;
         device["manufacturer"] = "ESP32";
         device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.2.0";
+        device["sw_version"] = "1.3.0";
         
         String output;
         serializeJson(doc, output);
@@ -587,7 +698,7 @@ void publishDiscovery() {
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
             device["model"] = "16-Channel Relay Controller";
-            device["sw_version"] = "1.2.0";
+            device["sw_version"] = "1.3.0";
             
             String output;
             serializeJson(doc, output);

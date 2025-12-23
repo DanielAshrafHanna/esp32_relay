@@ -547,6 +547,34 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 
 ## Version History
 
+- **v1.3.0** - Smart Reconnection System (October 2025)
+  - **Smart WiFi Reconnection:**
+    - Fast phase: 6 attempts every 10 seconds (~1 minute) before AP mode
+    - Slow phase: Attempts every 60 seconds while in AP mode
+    - AP client protection: Reconnection pauses when configuring
+    - Automatic resume when AP client disconnects
+  - **Smart MQTT Reconnection with Exponential Backoff:**
+    - Attempts 1-3: Every 10 seconds (fast recovery)
+    - Attempts 4-6: Every 30 seconds (medium interval)
+    - Attempts 7-10: Every 60 seconds (slow interval)
+    - Attempts 11+: Every 5 minutes (reduces broker load)
+  - **Credential Error Detection:**
+    - Detects authentication/authorization failures (rc=4, rc=5)
+    - Stops reconnection attempts on credential errors
+    - Prevents hammering broker with invalid credentials
+  - **Enhanced Diagnostics:**
+    - Detailed MQTT error code descriptions
+    - Attempt counter in reconnection logs
+    - Next retry interval shown on failure
+  - **WiFiManager Fix:**
+    - Fixed MQTT credentials not saving from captive portal
+    - Added hostname field to WiFiManager configuration
+    - Registered save callback to properly detect user saves
+    - Settings only saved when user actually clicks Save
+  - **MQTT Keep-Alive Optimization:**
+    - Reduced keep-alive from 60s to 30s for faster availability detection
+    - Home Assistant now detects disconnection in ~45s instead of ~75s
+
 - **v1.4.1** - WiFi reconnection speed improvement (October 2025)
   - Faster WiFi disconnection detection (30s → 5s, 6x faster)
   - Faster AP mode entry (30s → 15s timeout, 2x faster)
