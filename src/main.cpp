@@ -365,18 +365,22 @@ void setupWiFi() {
     
     // Try to connect to saved WiFi or start captive portal
     if (!wifiManager.autoConnect(AP_NAME, AP_PASSWORD)) {
-        Serial.println("Failed to connect and hit timeout");
-        delay(3000);
-        ESP.restart();
+        // WiFiManager failed to connect - enter AP mode instead of rebooting
+        // This prevents relay clicks and allows background reconnection attempts
+        Serial.println("[WiFi] Failed to connect - entering AP mode (no reboot)");
+        Serial.println("[WiFi] Will retry connection every 60 seconds in background");
+        startAPMode();
+        // Don't return - continue setup so web server and other services start
+        // checkWiFiConnection() in loop() will handle reconnection attempts
+    } else {
+        // Connected!
+        Serial.println("WiFi connected!");
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+        
+        wifiConnected = true;  // Mark WiFi as connected
+        apModeActive = false;
     }
-    
-    // Connected!
-    Serial.println("WiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-    
-    wifiConnected = true;  // Mark WiFi as connected
-    apModeActive = false;
     
     // Only save MQTT settings if user actually clicked Save in the portal
     if (shouldSaveConfig) {
@@ -655,7 +659,7 @@ void publishDiscovery() {
         device["name"] = DEVICE_NAME;
         device["manufacturer"] = "ESP32";
         device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.3.0";
+        device["sw_version"] = "1.4.0";
         
         String output;
         serializeJson(doc, output);
@@ -698,7 +702,7 @@ void publishDiscovery() {
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
             device["model"] = "16-Channel Relay Controller";
-            device["sw_version"] = "1.3.0";
+            device["sw_version"] = "1.4.0";
             
             String output;
             serializeJson(doc, output);
@@ -775,13 +779,14 @@ void setupWebServer() {
         }
     );
     
-    // API: Get WiFi info
+    // API: Get WiFi info (includes uptime)
     server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
         StaticJsonDocument<256> doc;
         doc["ssid"] = WiFi.SSID();
         doc["ip"] = WiFi.localIP().toString();
         doc["rssi"] = WiFi.RSSI();
         doc["hostname"] = String(MDNS_HOSTNAME) + ".local";
+        doc["uptime"] = millis() / 1000;  // Uptime in seconds
         
         String output;
         serializeJson(doc, output);

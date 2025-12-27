@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateInterval = setInterval(() => {
         loadRelays();
         loadMQTTInfo();
+        loadWiFiInfo();  // Also refresh uptime
     }, 2000);
     
     // Set up reset button
@@ -91,6 +92,22 @@ async function toggleRelay(relayId, newState) {
     }
 }
 
+// Format uptime in human-readable format
+function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    let result = '';
+    if (days > 0) result += `${days}d `;
+    if (hours > 0 || days > 0) result += `${hours}h `;
+    if (minutes > 0 || hours > 0 || days > 0) result += `${minutes}m `;
+    result += `${secs}s`;
+    
+    return result;
+}
+
 // Load WiFi information
 async function loadWiFiInfo() {
     try {
@@ -107,6 +124,7 @@ async function loadWiFiInfo() {
         document.getElementById('info-ssid').textContent = data.ssid;
         document.getElementById('info-ip').textContent = data.ip;
         document.getElementById('info-rssi').textContent = data.rssi;
+        document.getElementById('uptime').textContent = formatUptime(data.uptime);
     } catch (error) {
         console.error('Error loading WiFi info:', error);
     }

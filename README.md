@@ -1,5 +1,7 @@
 # ESP32 Relay Controller
 
+**WIFI Signal should be <-60 dBm for stable results**
+
 **Version 1.2** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
@@ -547,7 +549,13 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 
 ## Version History
 
-- **v1.3.0** - Smart Reconnection System (October 2025)
+- **v1.4.0** - Safety & Uptime 
+  - Removed ESP.restart() on WiFi failure - enters AP mode instead (prevents relay clicks)
+  - Added uptime display on webpage (shows time since last reboot)
+  - Background WiFi reconnection continues every 60 seconds in AP mode
+  - Critical fix for safety-sensitive applications (lights, gates)
+
+- **v1.3.0** - Smart Reconnection System 
   - **Smart WiFi Reconnection:**
     - Fast phase: 6 attempts every 10 seconds (~1 minute) before AP mode
     - Slow phase: Attempts every 60 seconds while in AP mode
