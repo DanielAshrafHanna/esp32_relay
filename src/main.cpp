@@ -9,13 +9,11 @@
 #include <Preferences.h>
 #include <RCSwitch.h>
 #include "config.h"
-#include "relay_control.h"
 
 // Global objects
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 AsyncWebServer server(WEB_SERVER_PORT);
-RelayControl relayControl;
 Preferences preferences;
 RCSwitch rfReceiver = RCSwitch();
 
@@ -24,11 +22,10 @@ char mqtt_server[40] = "192.168.68.100";
 char mqtt_port[6] = "1883";
 char mqtt_user[40] = "solacemqtt";
 char mqtt_password[40] = "solacepass";
-char mqtt_hostname[40] = "esp32-relay";  // Configurable MQTT hostname for topics
+char mqtt_hostname[40] = "esp32-rf";  // Configurable MQTT hostname for topics
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
-int activeRelayCount = 16;  // Default to all 16 relays
 
 // RF Receiver settings - Multiple codes support
 #define MAX_RF_CODES 10
@@ -85,14 +82,11 @@ void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info);
 void setupMQTT();
 void setupWebServer();
 void setupMDNS();
-void mqttCallback(char* topic, byte* payload, unsigned int length);
 unsigned long getMqttRetryInterval();
 void reconnectMQTT();
 void publishDiscovery();
-void publishState(int relayIndex);
 void saveConfigCallback();
-void saveRelayStates();
-void restoreRelayStates();
+void restoreSettings();
 void setupRFReceiver();
 void checkRFSignal();
 void publishRFTriggerState(int slot);
@@ -104,13 +98,10 @@ bool shouldSaveConfig = false;
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== ESP32 Relay Controller ===");
+    Serial.println("\n\n=== ESP32 RF-to-MQTT Bridge ===");
     
-    // Initialize relay control
-    relayControl.init();
-    
-    // Restore saved relay states and RF codes
-    restoreRelayStates();
+    // Restore saved settings and RF codes
+    restoreSettings();
     restoreRFCodes();
     
     // Initialize LittleFS for web files
@@ -143,7 +134,7 @@ void setup() {
     Serial.printf("mDNS URL: http://%s.local\n", MDNS_HOSTNAME);
     Serial.printf("Admin Page: http://%s.local/solaceadmin\n", MDNS_HOSTNAME);
     Serial.printf("MQTT Server: %s:%s\n", mqtt_server, mqtt_port);
-    Serial.printf("Active Relays: %d\n", activeRelayCount);
+    Serial.printf("RF Codes: %d learned\n", rfCodeCount);
     Serial.println("======================\n");
 }
 
@@ -182,14 +173,10 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     }
     
     // ONLY restart mDNS if it was already initialized (reconnection scenario)
-    // Don't interfere with initial setup in setup()
     if (mdnsInitialized) {
         Serial.println("[WiFi] Reconnection detected - restarting mDNS...");
         
-        // Give WiFi a moment to fully stabilize
         delay(100);
-        
-        // Restart mDNS for new IP
         MDNS.end();
         delay(50);
         
@@ -209,45 +196,30 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
 void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.println("[WiFi] Event: Disconnected!");
     wifiConnected = false;
-    // Don't take action here - let checkWiFiConnection() handle it
 }
 
 void setupWiFiEvents() {
     Serial.println("[WiFi] Registering event handlers...");
-    // Register event handlers for automatic WiFi status updates
     wifiConnectHandler = WiFi.onEvent(onWiFiConnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
     wifiDisconnectHandler = WiFi.onEvent(onWiFiDisconnect, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
     Serial.println("[WiFi] Event handlers registered");
 }
 
 /*
- * Smart WiFi Reconnection System (v1.3.0)
- * 
- * Fast Phase (before AP mode):
- *   - 6 attempts, 10 seconds apart
- *   - Each attempt has 10 second timeout
- *   - Total ~1 minute before AP mode
- * 
- * Slow Phase (in AP mode):
- *   - Attempts every 60 seconds
- *   - Pauses when AP client is connected
- *   - Resumes when client disconnects
+ * Smart WiFi Reconnection System
  */
 void checkWiFiConnection() {
     unsigned long currentMillis = millis();
     
-    // Check connection status every 5 seconds (fast detection with event-driven approach)
     if (currentMillis - lastWiFiCheck < WIFI_CHECK_INTERVAL) {
         return;
     }
     lastWiFiCheck = currentMillis;
     
-    // If connected, nothing to do (events handle status changes)
     if (WiFi.status() == WL_CONNECTED) {
         return;
     }
     
-    // If currently reconnecting, check timeout
     if (wifiReconnecting) {
         if (currentMillis - reconnectStartTime > RECONNECT_TIMEOUT) {
             wifiReconnecting = false;
@@ -256,27 +228,22 @@ void checkWiFiConnection() {
             Serial.printf("[WiFi] Reconnect attempt %d/%d timed out\n", 
                          wifiReconnectAttempts, WIFI_FAST_ATTEMPTS);
             
-            // After WIFI_FAST_ATTEMPTS failed, enter AP mode
             if (wifiReconnectAttempts >= WIFI_FAST_ATTEMPTS && !apModeActive) {
                 Serial.println("[WiFi] Fast reconnection phase failed - entering AP mode");
                 startAPMode();
             }
         }
-        // Still waiting for connection - event will notify us
         return;
     }
     
-    // If in AP mode - slow phase with client protection
     if (apModeActive) {
         int clientCount = WiFi.softAPgetStationNum();
         
         if (clientCount > 0) {
-            // Don't try to reconnect while clients are connected (protects configuration)
             lastReconnectAttempt = currentMillis;
             return;
         }
         
-        // Slow interval in AP mode (60 seconds)
         if (currentMillis - lastReconnectAttempt < WIFI_SLOW_INTERVAL) {
             return;
         }
@@ -286,13 +253,11 @@ void checkWiFiConnection() {
         wifiReconnecting = true;
         reconnectStartTime = currentMillis;
         
-        // NON-BLOCKING: Just initiate connection, event will notify when ready
         WiFi.mode(WIFI_AP_STA);
         WiFi.begin();
         return;
     }
     
-    // Not in AP mode, not reconnecting - determine interval based on attempt count
     unsigned long reconnectInterval = (wifiReconnectAttempts < WIFI_FAST_ATTEMPTS) 
         ? WIFI_FAST_INTERVAL 
         : WIFI_SLOW_INTERVAL;
@@ -301,21 +266,18 @@ void checkWiFiConnection() {
         return;
     }
     
-    // Start reconnection attempt
     Serial.printf("[WiFi] Reconnect attempt %d/%d starting...\n", 
                  wifiReconnectAttempts + 1, WIFI_FAST_ATTEMPTS);
     lastReconnectAttempt = currentMillis;
     wifiReconnecting = true;
     reconnectStartTime = currentMillis;
     
-    // NON-BLOCKING: Just initiate, event will fire when connected
     WiFi.begin();
 }
 
 void startAPMode() {
     Serial.println("[WiFi] Starting AP mode...");
     
-    // Start AP mode while keeping STA active
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(AP_NAME, AP_PASSWORD);
     
@@ -327,9 +289,7 @@ void startAPMode() {
     Serial.printf("[WiFi] AP SSID: %s\n", AP_NAME);
     Serial.printf("[WiFi] AP Password: %s\n", AP_PASSWORD);
     Serial.printf("[WiFi] AP IP: %s\n", apIP.toString().c_str());
-    Serial.println("[WiFi] Connect to configure WiFi or wait for automatic reconnection attempts");
     
-    // Restart mDNS to work with AP IP
     MDNS.end();
     if (MDNS.begin(MDNS_HOSTNAME)) {
         Serial.printf("[mDNS] Responder started in AP mode: http://%s.local\n", MDNS_HOSTNAME);
@@ -340,66 +300,53 @@ void startAPMode() {
 void setupWiFi() {
     WiFiManager wifiManager;
     
-    // Reset the save flag before starting
     shouldSaveConfig = false;
     
-    // Create custom parameters for MQTT configuration (including hostname)
     WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, 40);
     WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
     WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, 40);
     WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, 40);
     WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, 40);
     
-    // Add all custom parameters to WiFiManager
     wifiManager.addParameter(&custom_mqtt_server);
     wifiManager.addParameter(&custom_mqtt_port);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_password);
     wifiManager.addParameter(&custom_mqtt_hostname);
     
-    // Register save callback - this is called when user clicks Save in the portal
     wifiManager.setSaveConfigCallback(saveConfigCallback);
-    
-    // Set timeout
     wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
     
-    // Try to connect to saved WiFi or start captive portal
     if (!wifiManager.autoConnect(AP_NAME, AP_PASSWORD)) {
-        // WiFiManager failed to connect - enter AP mode instead of rebooting
-        // This prevents relay clicks and allows background reconnection attempts
         Serial.println("[WiFi] Failed to connect - entering AP mode (no reboot)");
         Serial.println("[WiFi] Will retry connection every 60 seconds in background");
         startAPMode();
-        // Don't return - continue setup so web server and other services start
-        // checkWiFiConnection() in loop() will handle reconnection attempts
     } else {
-        // Connected!
         Serial.println("WiFi connected!");
         Serial.print("IP address: ");
         Serial.println(WiFi.localIP());
         
-        wifiConnected = true;  // Mark WiFi as connected
+        wifiConnected = true;
         apModeActive = false;
+        
+        WiFi.setAutoReconnect(false);
+        Serial.println("[WiFi] Auto-reconnect disabled (using custom reconnection logic)");
     }
     
-    // Only save MQTT settings if user actually clicked Save in the portal
     if (shouldSaveConfig) {
         Serial.println("[WiFiManager] Save triggered - reading new MQTT settings...");
         
-        // Read MQTT parameters from WiFiManager
         String new_server = custom_mqtt_server.getValue();
         String new_port = custom_mqtt_port.getValue();
         String new_user = custom_mqtt_user.getValue();
         String new_password = custom_mqtt_password.getValue();
         String new_hostname = custom_mqtt_hostname.getValue();
         
-        // Validate hostname - use default if empty
         if (new_hostname.length() == 0) {
-            new_hostname = "esp32-relay";
+            new_hostname = "esp32-rf";
         }
         
-        // Save to preferences
-        preferences.begin("relay-states", false);
+        preferences.begin("rf-bridge", false);
         preferences.putString("mqtt_server", new_server);
         preferences.putString("mqtt_port", new_port);
         preferences.putString("mqtt_user", new_user);
@@ -407,7 +354,6 @@ void setupWiFi() {
         preferences.putString("mqtt_hostname", new_hostname);
         preferences.end();
         
-        // Update current variables
         new_server.toCharArray(mqtt_server, 40);
         new_port.toCharArray(mqtt_port, 6);
         new_user.toCharArray(mqtt_user, 40);
@@ -419,7 +365,7 @@ void setupWiFi() {
         Serial.printf("  User: %s\n", mqtt_user);
         Serial.printf("  Hostname: %s\n", mqtt_hostname);
     } else {
-        Serial.println("[WiFiManager] Using existing MQTT settings (no changes from portal):");
+        Serial.println("[WiFiManager] Using existing MQTT settings:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
         Serial.printf("  User: %s\n", mqtt_user);
         Serial.printf("  Hostname: %s\n", mqtt_hostname);
@@ -427,7 +373,6 @@ void setupWiFi() {
 }
 
 void setupMDNS() {
-    // Ensure WiFi is ready before starting mDNS
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[mDNS] Waiting for WiFi connection...");
         return;
@@ -438,18 +383,11 @@ void setupMDNS() {
     if (MDNS.begin(MDNS_HOSTNAME)) {
         Serial.printf("[mDNS] Responder started: http://%s.local\n", MDNS_HOSTNAME);
         Serial.printf("[mDNS] IP Address: %s\n", WiFi.localIP().toString().c_str());
-        
-        // Add HTTP service
         MDNS.addService("http", "tcp", 80);
-        
         Serial.println("[mDNS] HTTP service registered");
-        Serial.println("[mDNS] Device should now be discoverable at esp32-relay.local");
-        
-        // Mark as initialized so event handler can restart it on reconnection
         mdnsInitialized = true;
     } else {
         Serial.println("[mDNS] ERROR: Failed to start mDNS responder!");
-        Serial.println("[mDNS] .local URL will not work - use IP address instead");
         mdnsInitialized = false;
     }
 }
@@ -457,53 +395,30 @@ void setupMDNS() {
 void setupMQTT() {
     if (strlen(mqtt_server) > 0) {
         mqttClient.setServer(mqtt_server, atoi(mqtt_port));
-        mqttClient.setCallback(mqttCallback);
-        mqttClient.setBufferSize(1024);  // Buffer for discovery messages (max ~500 bytes each)
-        // Keep-alive (60s) and socket timeout (30s) set via build flags in platformio.ini
+        mqttClient.setBufferSize(1024);
         reconnectMQTT();
     } else {
         Serial.println("MQTT server not configured");
     }
 }
 
-/*
- * MQTT Retry Interval with Progressive Backoff (v1.3.0)
- * 
- * Strategy:
- *   - Attempts 1-3:  Every 10 seconds (fast recovery for temporary issues)
- *   - Attempts 4-6:  Every 30 seconds (medium interval)
- *   - Attempts 7-10: Every 60 seconds (slow interval)
- *   - Attempts 11+:  Every 5 minutes (very slow to reduce broker load)
- */
 unsigned long getMqttRetryInterval() {
     if (mqttReconnectAttempts < 3) {
-        return 10000;   // First 3 attempts: 10 seconds
+        return 10000;
     } else if (mqttReconnectAttempts < 6) {
-        return 30000;   // Attempts 4-6: 30 seconds
+        return 30000;
     } else if (mqttReconnectAttempts < 10) {
-        return 60000;   // Attempts 7-10: 60 seconds
+        return 60000;
     } else {
-        return 300000;  // Attempts 11+: 5 minutes
+        return 300000;
     }
 }
 
-/*
- * Smart MQTT Reconnection with Exponential Backoff (v1.3.0)
- * 
- * Features:
- * - Progressive backoff to reduce broker load during outages
- * - Credential error detection (stops retrying on auth failures)
- * - Discovery published ONCE per boot (on first connection)
- * - Subsequent reconnections only publish states (fast)
- * - Manual republish available via /api/mqtt/rediscover
- */
 void reconnectMQTT() {
-    // Don't retry if credential error was detected
     if (mqttCredentialError) {
         return;
     }
     
-    // Use progressive backoff interval
     unsigned long retryInterval = getMqttRetryInterval();
     
     if (millis() - lastMQTTAttempt < retryInterval) {
@@ -522,6 +437,8 @@ void reconnectMQTT() {
     String clientId = String(DEVICE_NAME) + "-" + String(ESP.getEfuseMac(), HEX);
     String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
     
+    yield();
+    
     bool connected;
     if (strlen(mqtt_user) > 0) {
         connected = mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password, 
@@ -531,47 +448,26 @@ void reconnectMQTT() {
                                        availTopic.c_str(), 0, true, "offline");
     }
     
+    yield();
+    
     if (connected) {
         Serial.println("[MQTT] Connected!");
-        
-        // Reset counters on success
         mqttReconnectAttempts = 0;
         
-        // Publish availability as online
         mqttClient.publish(availTopic.c_str(), "online", true);
         
-        // Subscribe to command topics for each relay
-        for (int i = 0; i < NUM_RELAYS; i++) {
-            String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
-            mqttClient.subscribe(topic.c_str());
-        }
-        Serial.println("[MQTT] Subscribed to command topics");
-        
-        // Only publish discovery on FIRST connection after boot
         if (!discoveryPublished) {
-            Serial.println("[MQTT] First connection - publishing discovery...");
+            Serial.println("[MQTT] First connection - publishing RF discovery...");
             publishDiscovery();
             discoveryPublished = true;
-            
-            // Publish initial states (with yield to prevent blocking)
-            for (int i = 0; i < activeRelayCount; i++) {
-                publishState(i);
-                yield();  // Allow other tasks to run
-            }
-            Serial.println("[MQTT] Discovery and states published");
+            Serial.println("[MQTT] RF discovery published");
         } else {
-            // On reconnection, just republish current states quickly
-            Serial.println("[MQTT] Reconnected - republishing states only");
-            for (int i = 0; i < activeRelayCount; i++) {
-                publishState(i);
-                yield();
-            }
+            Serial.println("[MQTT] Reconnected - republishing availability");
         }
     } else {
         int rc = mqttClient.state();
         Serial.printf("[MQTT] Failed, rc=%d ", rc);
         
-        // Decode error for better diagnostics
         switch (rc) {
             case -4: Serial.println("(Connection timeout)"); break;
             case -3: Serial.println("(Connection lost)"); break;
@@ -585,45 +481,15 @@ void reconnectMQTT() {
             default: Serial.println("(Unknown error)"); break;
         }
         
-        // Check for credential errors (won't fix themselves - stop retrying)
-        // PubSubClient: 4 = MQTT_CONNECT_BAD_CREDENTIALS, 5 = MQTT_CONNECT_UNAUTHORIZED
         if (rc == 4 || rc == 5) {
             Serial.println("[MQTT] ERROR: Credential/authorization error detected");
             Serial.println("[MQTT] Stopping reconnection attempts until settings are updated");
-            Serial.println("[MQTT] Please check MQTT username/password in admin panel");
             mqttCredentialError = true;
         }
+        
+        yield();
+        delay(10);
     }
-}
-
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    String message;
-    for (unsigned int i = 0; i < length; i++) {
-        message += (char)payload[i];
-    }
-    
-    Serial.printf("Message arrived [%s]: %s\n", topic, message.c_str());
-    
-    // Parse topic to get relay number
-    String topicStr = String(topic);
-    for (int i = 0; i < NUM_RELAYS; i++) {
-        String expectedTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
-        if (topicStr == expectedTopic) {
-            bool newState = (message == "ON");
-            relayControl.setState(i, newState);
-            publishState(i);
-            saveRelayStates();  // Save state to persistent storage
-            break;
-        }
-    }
-}
-
-void publishState(int relayIndex) {
-    if (!mqttClient.connected()) return;
-    
-    String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(relayIndex + 1) + "/state";
-    String state = relayControl.getState(relayIndex) ? "ON" : "OFF";
-    mqttClient.publish(topic.c_str(), state.c_str(), true);
 }
 
 void publishDiscovery() {
@@ -631,53 +497,11 @@ void publishDiscovery() {
     
     String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
     
-    Serial.printf("[MQTT] Publishing discovery for %d relays\n", activeRelayCount);
-    
-    for (int i = 0; i < activeRelayCount; i++) {
-        StaticJsonDocument<1024> doc;
-        
-        String uniqueId = String(mqtt_hostname) + "_relay" + String(i + 1);
-        String name = String(RELAY_NAMES[i]);
-        String stateTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/state";
-        String commandTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/relay" + String(i + 1) + "/set";
-        String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/switch/" + mqtt_hostname + "_relay" + String(i + 1) + "/config";
-        
-        doc["name"] = name;
-        doc["unique_id"] = uniqueId;
-        doc["state_topic"] = stateTopic;
-        doc["command_topic"] = commandTopic;
-        doc["availability_topic"] = availTopic;
-        doc["payload_on"] = "ON";
-        doc["payload_off"] = "OFF";
-        doc["state_on"] = "ON";
-        doc["state_off"] = "OFF";
-        doc["optimistic"] = false;
-        doc["icon"] = "mdi:electric-switch";
-        
-        JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0] = mqtt_hostname;
-        device["name"] = DEVICE_NAME;
-        device["manufacturer"] = "ESP32";
-        device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.4.0";
-        
-        String output;
-        serializeJson(doc, output);
-        
-        mqttClient.publish(configTopic.c_str(), output.c_str(), true);
-        
-        // Keep connection alive during discovery
-        yield();
-        mqttClient.loop();
-        delay(50);  // Small delay to prevent broker overflow
-    }
-    
-    // Publish RF Trigger discovery for each learned code (binary sensors that auto-reset)
+    // Publish RF Trigger discovery for each learned code (binary sensors)
     for (int i = 0; i < MAX_RF_CODES; i++) {
         if (rfCodes[i].active && rfCodes[i].code != 0) {
             StaticJsonDocument<1024> doc;
             
-            // Create safe entity ID from name (lowercase, no spaces)
             String entityId = String(rfCodes[i].name);
             entityId.toLowerCase();
             entityId.replace(" ", "_");
@@ -695,21 +519,20 @@ void publishDiscovery() {
             doc["payload_off"] = "OFF";
             doc["device_class"] = "motion";
             doc["icon"] = "mdi:remote";
-            doc["off_delay"] = 2;  // Auto-off after 2 seconds
+            doc["off_delay"] = 2;
             
             JsonObject device = doc["device"].to<JsonObject>();
             device["identifiers"][0] = mqtt_hostname;
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
-            device["model"] = "16-Channel Relay Controller";
-            device["sw_version"] = "1.4.0";
+            device["model"] = "RF-to-MQTT Bridge";
+            device["sw_version"] = "2.0.0";
             
             String output;
             serializeJson(doc, output);
             
             mqttClient.publish(configTopic.c_str(), output.c_str(), true);
             
-            // Keep connection alive during discovery
             yield();
             mqttClient.loop();
             delay(50);
@@ -720,65 +543,12 @@ void publishDiscovery() {
     
     if (rfCodeCount > 0) {
         Serial.printf("[MQTT] Published %d RF trigger entities\n", rfCodeCount);
+    } else {
+        Serial.println("[MQTT] No RF codes learned yet - use web interface to learn codes");
     }
-    
-    Serial.printf("[MQTT] Discovery complete for %d relays\n", activeRelayCount);
 }
 
 void setupWebServer() {
-    // API routes MUST be defined BEFORE static file serving
-    
-    // API: Get relay states
-    server.on("/api/relays", HTTP_GET, [](AsyncWebServerRequest *request) {
-        StaticJsonDocument<2048> doc;
-        JsonArray relays = doc["relays"].to<JsonArray>();
-        
-        for (int i = 0; i < NUM_RELAYS; i++) {
-            JsonObject relay = relays.createNestedObject();
-            relay["id"] = i + 1;
-            relay["name"] = RELAY_NAMES[i];
-            relay["state"] = relayControl.getState(i);
-            relay["pin"] = RELAY_PINS[i];
-        }
-        
-        String output;
-        serializeJson(doc, output);
-        request->send(200, "application/json", output);
-    });
-    
-    // API: Control relay
-    server.on("/api/relay", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            StaticJsonDocument<256> doc;
-            DeserializationError error = deserializeJson(doc, (char*)data);
-            
-            if (error) {
-                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-                return;
-            }
-            
-            int relayId = doc["relay"];
-            bool state = doc["state"];
-            
-            if (relayId >= 1 && relayId <= NUM_RELAYS) {
-                relayControl.setState(relayId - 1, state);
-                publishState(relayId - 1);
-                saveRelayStates();  // Save state to persistent storage
-                
-                StaticJsonDocument<256> response;
-                response["success"] = true;
-                response["relay"] = relayId;
-                response["state"] = state;
-                
-                String output;
-                serializeJson(response, output);
-                request->send(200, "application/json", output);
-            } else {
-                request->send(400, "application/json", "{\"error\":\"Invalid relay ID\"}");
-            }
-        }
-    );
-    
     // API: Get WiFi info (includes uptime)
     server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
         StaticJsonDocument<256> doc;
@@ -786,7 +556,7 @@ void setupWebServer() {
         doc["ip"] = WiFi.localIP().toString();
         doc["rssi"] = WiFi.RSSI();
         doc["hostname"] = String(MDNS_HOSTNAME) + ".local";
-        doc["uptime"] = millis() / 1000;  // Uptime in seconds
+        doc["uptime"] = millis() / 1000;
         
         String output;
         serializeJson(doc, output);
@@ -826,7 +596,7 @@ void setupWebServer() {
         request->send(200, "application/json", output);
     });
     
-    // API: Reconfigure WiFi (useful when in AP mode)
+    // API: Reconfigure WiFi
     server.on("/api/wifi/reconfigure", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
         [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
             StaticJsonDocument<512> doc;
@@ -846,10 +616,7 @@ void setupWebServer() {
             }
             
             request->send(200, "application/json", "{\"success\":true,\"message\":\"Connecting to new WiFi...\"}");
-            
-            // Save new credentials and reconnect
             WiFi.begin(new_ssid.c_str(), new_password.c_str());
-            
             Serial.printf("[WiFi] Attempting to connect to: %s\n", new_ssid.c_str());
         }
     );
@@ -891,58 +658,17 @@ void setupWebServer() {
         }
         
         StaticJsonDocument<512> doc;
-        doc["active_relays"] = activeRelayCount;
-        doc["total_relays"] = NUM_RELAYS;
         doc["mqtt_server"] = mqtt_server;
         doc["mqtt_port"] = atoi(mqtt_port);
         doc["mqtt_user"] = mqtt_user;
         doc["mqtt_hostname"] = mqtt_hostname;
-        // Don't send password for security
         doc["mqtt_password"] = "••••••••";
+        doc["rf_codes"] = rfCodeCount;
         
         String output;
         serializeJson(doc, output);
         request->send(200, "application/json", output);
     });
-    
-    // API: Save admin configuration
-    server.on("/api/admin/config", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
-        [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            if (!request->authenticate("admin", ADMIN_PASSWORD)) {
-                return request->requestAuthentication();
-            }
-            
-            StaticJsonDocument<256> doc;
-            DeserializationError error = deserializeJson(doc, (char*)data);
-            
-            if (error) {
-                request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
-                return;
-            }
-            
-            int newRelayCount = doc["active_relays"];
-            
-            if (newRelayCount != 8 && newRelayCount != 12 && newRelayCount != 16) {
-                request->send(400, "application/json", "{\"error\":\"Invalid relay count. Must be 8, 12, or 16\"}");
-                return;
-            }
-            
-            // Save to preferences
-            preferences.begin("relay-states", false);
-            preferences.putInt("active_count", newRelayCount);
-            preferences.end();
-            
-            activeRelayCount = newRelayCount;
-            
-            Serial.printf("[Admin] Relay count changed to: %d\n", activeRelayCount);
-            
-            request->send(200, "application/json", "{\"success\":true}");
-            
-            // Restart ESP32 to apply changes and republish discovery
-            delay(1000);
-            ESP.restart();
-        }
-    );
     
     // API: Save MQTT configuration
     server.on("/api/admin/mqtt", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
@@ -965,32 +691,27 @@ void setupWebServer() {
             String new_password = doc["mqtt_password"].as<String>();
             String new_hostname = doc["mqtt_hostname"].as<String>();
             
-            // Validate inputs
             if (new_server.length() == 0 || new_port < 1 || new_port > 65535) {
                 request->send(400, "application/json", "{\"error\":\"Invalid MQTT settings\"}");
                 return;
             }
             
-            // Validate hostname - use default if empty or too long
             if (new_hostname.length() == 0 || new_hostname.length() > 39) {
-                new_hostname = "esp32-relay";
+                new_hostname = "esp32-rf";
             }
             
-            // Save to preferences
-            preferences.begin("relay-states", false);
+            preferences.begin("rf-bridge", false);
             preferences.putString("mqtt_server", new_server);
             preferences.putString("mqtt_port", String(new_port));
             preferences.putString("mqtt_user", new_user);
             preferences.putString("mqtt_hostname", new_hostname);
             
-            // Only save password if it's not the placeholder
             if (new_password != "••••••••") {
                 preferences.putString("mqtt_pass", new_password);
             }
             
             preferences.end();
             
-            // Update current variables
             new_server.toCharArray(mqtt_server, 40);
             String(new_port).toCharArray(mqtt_port, 6);
             new_user.toCharArray(mqtt_user, 40);
@@ -1006,7 +727,6 @@ void setupWebServer() {
             
             request->send(200, "application/json", "{\"success\":true}");
             
-            // Restart ESP32 to apply MQTT changes
             delay(1000);
             ESP.restart();
         }
@@ -1037,7 +757,7 @@ void setupWebServer() {
         request->send(200, "application/json", output);
     });
     
-    // API: Get RF status (legacy - kept for compatibility)
+    // API: Get RF status
     server.on("/api/rf/status", HTTP_GET, [](AsyncWebServerRequest *request) {
         StaticJsonDocument<256> doc;
         doc["learning_mode"] = rfLearningMode;
@@ -1049,14 +769,13 @@ void setupWebServer() {
         request->send(200, "application/json", output);
     });
     
-    // API: Start RF learning mode with name
+    // API: Start RF learning mode
     server.on("/api/rf/learn", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (rfCodeCount >= MAX_RF_CODES) {
             request->send(400, "application/json", "{\"error\":\"Maximum codes reached\"}");
             return;
         }
         
-        // Get name parameter (required)
         if (!request->hasParam("name", true)) {
             request->send(400, "application/json", "{\"error\":\"Name parameter required\"}");
             return;
@@ -1068,7 +787,6 @@ void setupWebServer() {
             return;
         }
         
-        // Store name for when code is learned
         strncpy(pendingRFName, name.c_str(), sizeof(pendingRFName) - 1);
         pendingRFName[sizeof(pendingRFName) - 1] = '\0';
         
@@ -1086,7 +804,7 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode deactivated\"}");
     });
     
-    // API: Delete specific RF code
+    // API: Delete RF code
     server.on("/api/rf/delete", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (!request->hasParam("slot", true)) {
             request->send(400, "application/json", "{\"error\":\"Slot parameter required\"}");
@@ -1120,25 +838,18 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"success\":true,\"message\":\"All RF codes cleared\"}");
     });
     
-    // API: Force MQTT discovery republish (manual trigger)
+    // API: Force MQTT discovery republish
     server.on("/api/mqtt/rediscover", HTTP_POST, [](AsyncWebServerRequest *request) {
         if (mqttClient.connected()) {
             Serial.println("[API] Manual discovery republish requested...");
             publishDiscovery();
-            
-            // Republish all states
-            for (int i = 0; i < activeRelayCount; i++) {
-                publishState(i);
-                yield();
-            }
-            
             request->send(200, "application/json", "{\"success\":true,\"message\":\"Discovery republished\"}");
         } else {
             request->send(503, "application/json", "{\"error\":\"MQTT not connected\"}");
         }
     });
     
-    // API: Restart mDNS service (troubleshooting)
+    // API: Restart mDNS
     server.on("/api/mdns/restart", HTTP_POST, [](AsyncWebServerRequest *request) {
         Serial.println("[API] Restarting mDNS service...");
         MDNS.end();
@@ -1147,7 +858,7 @@ void setupWebServer() {
         if (MDNS.begin(MDNS_HOSTNAME)) {
             MDNS.addService("http", "tcp", 80);
             delay(100);
-            mdnsInitialized = true;  // Mark as initialized
+            mdnsInitialized = true;
             Serial.printf("[mDNS] Service restarted: http://%s.local\n", MDNS_HOSTNAME);
             request->send(200, "application/json", "{\"success\":true,\"message\":\"mDNS restarted\"}");
         } else {
@@ -1170,12 +881,12 @@ void setupWebServer() {
         request->send(200, "application/json", output);
     });
     
-    // Handle favicon.ico requests to prevent error messages
+    // Handle favicon.ico
     server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(204);  // 204 No Content - silences browser requests
+        request->send(204);
     });
     
-    // Serve static files LAST (so API routes are matched first)
+    // Serve static files
     server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
     
     server.begin();
@@ -1187,29 +898,11 @@ void saveConfigCallback() {
     shouldSaveConfig = true;
 }
 
-void saveRelayStates() {
-    preferences.begin("relay-states", false);
+void restoreSettings() {
+    preferences.begin("rf-bridge", true);
     
-    for (int i = 0; i < NUM_RELAYS; i++) {
-        String key = "relay" + String(i);
-        bool state = relayControl.getState(i);
-        preferences.putBool(key.c_str(), state);
-    }
+    Serial.println("[Storage] Restoring settings...");
     
-    preferences.end();
-    Serial.println("[Storage] Relay states saved");
-}
-
-void restoreRelayStates() {
-    preferences.begin("relay-states", true);  // Read-only mode
-    
-    Serial.println("[Storage] Restoring relay states...");
-    
-    // Restore active relay count
-    activeRelayCount = preferences.getInt("active_count", 16);
-    Serial.printf("[Storage] Active relay count: %d\n", activeRelayCount);
-    
-    // Restore MQTT settings if they exist (override hardcoded defaults)
     String saved_server = preferences.getString("mqtt_server", "");
     if (saved_server.length() > 0) {
         saved_server.toCharArray(mqtt_server, 40);
@@ -1219,7 +912,7 @@ void restoreRelayStates() {
         saved_user.toCharArray(mqtt_user, 40);
         String saved_pass = preferences.getString("mqtt_pass", "");
         saved_pass.toCharArray(mqtt_password, 40);
-        String saved_hostname = preferences.getString("mqtt_hostname", "esp32-relay");
+        String saved_hostname = preferences.getString("mqtt_hostname", "esp32-rf");
         saved_hostname.toCharArray(mqtt_hostname, 40);
         Serial.println("[Storage] MQTT settings loaded from preferences");
         Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
@@ -1227,15 +920,7 @@ void restoreRelayStates() {
         Serial.println("[Storage] Using hardcoded MQTT settings");
     }
     
-    for (int i = 0; i < NUM_RELAYS; i++) {
-        String key = "relay" + String(i);
-        bool state = preferences.getBool(key.c_str(), false);  // Default to OFF if not found
-        relayControl.setState(i, state);
-        Serial.printf("  Relay %d: %s\n", i + 1, state ? "ON" : "OFF");
-    }
-    
     preferences.end();
-    Serial.println("[Storage] Relay states restored");
 }
 
 // RF Receiver Functions
@@ -1258,7 +943,6 @@ void checkRFSignal() {
         unsigned int protocol = rfReceiver.getReceivedProtocol();
         
         if (receivedCode != 0) {
-            // Learning mode - capture the signal and add to array
             if (rfLearningMode) {
                 int newSlot = addRFCode(pendingRFName, receivedCode, bitLength, protocol);
                 rfLearningMode = false;
@@ -1271,9 +955,8 @@ void checkRFSignal() {
                     Serial.println("[RF] ERROR: Failed to add code (array full)");
                 }
                 
-                pendingRFName[0] = '\0';  // Clear pending name
+                pendingRFName[0] = '\0';
             }
-            // Normal mode - check if it matches any learned code
             else {
                 for (int i = 0; i < MAX_RF_CODES; i++) {
                     if (rfCodes[i].active && 
@@ -1284,13 +967,10 @@ void checkRFSignal() {
                         Serial.printf("[RF] Trigger detected '%s': %lu (slot %d)\n", 
                                      rfCodes[i].name, receivedCode, i);
                         
-                        // Update last trigger time
                         rfCodes[i].lastTrigger = millis();
-                        
-                        // Publish state to MQTT
                         publishRFTriggerState(i);
                         
-                        break;  // Only trigger first match
+                        break;
                     }
                 }
             }
@@ -1306,14 +986,12 @@ void publishRFTriggerState(int slot) {
     
     String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(slot) + "/state";
     
-    // Publish ON
     mqttClient.publish(topic.c_str(), "ON", true);
     Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
     
-    // Non-blocking delay - call loop during wait to maintain MQTT connection
     unsigned long start = millis();
     while (millis() - start < RF_TRIGGER_DURATION) {
-        mqttClient.loop();  // Keep MQTT alive during the wait
+        mqttClient.loop();
         yield();
         delay(10);
     }
@@ -1323,7 +1001,7 @@ void publishRFTriggerState(int slot) {
 }
 
 void saveRFCodes() {
-    preferences.begin("relay-states", false);
+    preferences.begin("rf-bridge", false);
     preferences.putBytes("rf_codes", rfCodes, sizeof(rfCodes));
     preferences.putInt("rf_count", rfCodeCount);
     preferences.end();
@@ -1332,13 +1010,11 @@ void saveRFCodes() {
 }
 
 void restoreRFCodes() {
-    preferences.begin("relay-states", true);
+    preferences.begin("rf-bridge", true);
     
-    // Initialize array
     memset(rfCodes, 0, sizeof(rfCodes));
     rfCodeCount = 0;
     
-    // Try to restore new multi-code format
     size_t len = preferences.getBytesLength("rf_codes");
     if (len == sizeof(rfCodes)) {
         preferences.getBytes("rf_codes", rfCodes, sizeof(rfCodes));
@@ -1352,25 +1028,6 @@ void restoreRFCodes() {
                 }
             }
         }
-    } else {
-        // Migration: Try to restore old single code format
-        unsigned long oldCode = preferences.getULong("rf_code", 0);
-        if (oldCode != 0) {
-            unsigned int oldBits = preferences.getUInt("rf_bits", 0);
-            unsigned int oldProto = preferences.getUInt("rf_proto", 0);
-            
-            // Migrate to new format
-            rfCodes[0].active = true;
-            strncpy(rfCodes[0].name, "RF Signal 1", sizeof(rfCodes[0].name) - 1);
-            rfCodes[0].code = oldCode;
-            rfCodes[0].bitLength = oldBits;
-            rfCodes[0].protocol = oldProto;
-            rfCodes[0].lastTrigger = 0;
-            rfCodeCount = 1;
-            
-            Serial.println("[RF] Migrated old single code to slot 0");
-            saveRFCodes();  // Save in new format
-        }
     }
     
     preferences.end();
@@ -1378,10 +1035,9 @@ void restoreRFCodes() {
 
 int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsigned int protocol) {
     if (rfCodeCount >= MAX_RF_CODES) {
-        return -1;  // Array full
+        return -1;
     }
     
-    // Find first empty slot
     for (int i = 0; i < MAX_RF_CODES; i++) {
         if (!rfCodes[i].active) {
             rfCodes[i].active = true;
@@ -1398,7 +1054,7 @@ int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsi
         }
     }
     
-    return -1;  // Should never reach here
+    return -1;
 }
 
 void deleteRFCode(int slot) {
@@ -1411,4 +1067,3 @@ void deleteRFCode(int slot) {
         Serial.printf("[RF] Deleted code from slot %d\n", slot);
     }
 }
-

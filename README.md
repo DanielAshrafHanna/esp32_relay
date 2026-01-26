@@ -549,6 +549,12 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 
 ## Version History
 
+- **v1.4.1** - Stability improvements for weak WiFi
+  - Disabled ESP32's internal auto-reconnect (prevents conflicts with smart reconnection)
+  - Added watchdog feed (`yield()`) before/after MQTT connect operations
+  - Prevents watchdog resets during long MQTT connection attempts
+  - Improved system stability under weak WiFi conditions
+
 - **v1.4.0** - Safety & Uptime 
   - Removed ESP.restart() on WiFi failure - enters AP mode instead (prevents relay clicks)
   - Added uptime display on webpage (shows time since last reboot)
@@ -583,24 +589,20 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
     - Reduced keep-alive from 60s to 30s for faster availability detection
     - Home Assistant now detects disconnection in ~45s instead of ~75s
 
-- **v1.4.1** - WiFi reconnection speed improvement (October 2025)
+ - WiFi reconnection speed improvement (October 2025)
   - Faster WiFi disconnection detection (30s → 5s, 6x faster)
   - Faster AP mode entry (30s → 15s timeout, 2x faster)
   - More frequent reconnection attempts (60s → 30s, 2x more)
   - Total time to AP mode reduced from ~60s to ~20s (3x faster)
   - Maintains non-blocking operation and AP client protection
 
-- **v1.4** - Performance optimization (October 2025)
+ - Performance optimization (October 2025)
   - Optimized MQTT reconnection (48x faster)
   - Removed blocking delays from discovery publishing
   - Added smart WiFi reconnection with AP fallback
   - Improved system responsiveness
 
-- **v1.3** - RF Receiver support (October 2025)
-  - SYN480R 433MHz receiver integration
-  - RF learning mode via web interface
-  - Home Assistant RF trigger entity
-  - Manual stop learning mode button
+
 
 - **v1.2** - Enhanced configuration (October 2025)
   - Password-protected admin panel
