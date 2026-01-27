@@ -1,8 +1,8 @@
-# 🚀 Get Started - ESP32 Relay Controller
+# 🚀 Get Started - ESP32 RF-to-MQTT Bridge
 
 ## Welcome!
 
-You now have a complete, professional ESP32 relay controller ready to deploy! This guide will get you up and running in **15 minutes**.
+You now have a complete, professional ESP32 RF-to-MQTT bridge ready to deploy! This guide will get you up and running in **15 minutes**.
 
 ---
 
@@ -16,9 +16,8 @@ Your project contains:
 ✅ Modern web interface
 ✅ Full Home Assistant integration
 ✅ MQTT auto-discovery
+✅ Multi-code RF learning
 ✅ Comprehensive documentation
-✅ Troubleshooting guides
-✅ Wiring diagrams
 ```
 
 ---
@@ -27,18 +26,17 @@ Your project contains:
 
 ### Step 1: Hardware Setup (5 minutes)
 
-**Connect your ESP32 to relay module**:
+**Connect your RF receiver to ESP32**:
 
 ```
-ESP32 GPIO 23  →  Relay 1 (IN1)
-ESP32 GPIO 22  →  Relay 2 (IN2)
-ESP32 GPIO 21  →  Relay 3 (IN3)
-ESP32 GPIO 19  →  Relay 4 (IN4)
-ESP32 GND      →  Relay GND
-ESP32 5V/3.3V  →  Relay VCC
+SYN480R Receiver → ESP32
+─────────────────────────
+VCC              → 5V (or 3.3V)
+GND              → GND  
+DATA             → GPIO 22
 ```
 
-**⚠️ Important**: Check your relay module voltage requirements!
+**💡 Tip**: Add a 17.3cm wire antenna for better RF range!
 
 📘 **Detailed wiring**: See `WIRING.md`
 
@@ -80,7 +78,7 @@ pio device monitor
 1. **Wait for ESP32 to boot** (check serial monitor)
 
 2. **Connect to WiFi network**:
-   - SSID: `ESP32-Relay-Setup`
+   - SSID: `ESP32-RF-Setup`
    - Password: `12345678`
 
 3. **Captive portal should open automatically**
@@ -105,29 +103,30 @@ pio device monitor
 ### 1. Access Web Interface
 
 Open your browser:
-- **Recommended**: `http://esp32-relay.local`
+- **Recommended**: `http://esp32-rf.local`
 - **Alternative**: Use IP address from serial monitor
 
 You should see:
 - Modern dark-themed interface
-- 4 relay cards
 - WiFi and MQTT status
+- Link to RF Manager
 - System information
 
-### 2. Test Relay Control
+### 2. Learn Your First RF Code
 
-Click the relay buttons in the web interface:
-- ✅ Relays should click on/off
-- ✅ Status should update in real-time
-- ✅ Visual feedback (colors, animations)
+1. Click **"RF Manager"** or go to `http://esp32-rf.local/rf_manager.html`
+2. Enter a name (e.g., "Doorbell")
+3. Click **"Start Learning Mode"**
+4. Press a button on your RF transmitter
+5. ✅ Code captured and saved!
 
 ### 3. Check Home Assistant
 
 1. Open Home Assistant
 2. Go to **Settings** → **Devices & Services** → **MQTT**
-3. You should see **"ESP32-Relay"** device
-4. Click on it to see 4 relay switches
-5. Toggle switches - relays should respond
+3. You should see **"ESP32-RF-Bridge"** device
+4. Each learned RF code appears as a binary sensor
+5. Press RF transmitter - sensor should briefly turn ON
 
 **🎉 Success!** Your system is fully operational!
 
@@ -137,76 +136,87 @@ Click the relay buttons in the web interface:
 
 ### Control Methods
 
-**1. Web Interface**
-- Access from any device on your network
-- Real-time status updates
-- Manual control
+**1. RF Triggers**
+- Press any learned RF button
+- Creates momentary trigger in Home Assistant
+- Perfect for automations
 
-**2. Home Assistant**
-- Dashboard controls
-- Automations
-- Scenes
-- Voice commands (Alexa, Google)
-
-**3. MQTT Direct**
-```bash
-# Turn ON relay 1
-mosquitto_pub -h YOUR_MQTT_IP \
-  -t "homeassistant/switch/esp32-relay/relay1/set" \
-  -m "ON"
+**2. Home Assistant Automations**
+```yaml
+automation:
+  - alias: "Doorbell Alert"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.rf_doorbell
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Someone at the door!"
 ```
 
-**4. REST API**
+**3. REST API**
 ```bash
-# Get all relay states
-curl http://esp32-relay.local/api/relays
+# Get RF status
+curl http://esp32-rf.local/api/rf/status
 
-# Turn ON relay 1
-curl -X POST http://esp32-relay.local/api/relay \
-  -H "Content-Type: application/json" \
-  -d '{"relay":1,"state":true}'
+# Get learned codes
+curl http://esp32-rf.local/api/rf/codes
 ```
 
 ---
 
 ## 🏠 Home Assistant Examples
 
-### Create an Automation
+### Doorbell Notification
 
 ```yaml
 automation:
-  - alias: "Turn on relay 1 at sunset"
+  - alias: "RF Doorbell Alert"
     trigger:
-      - platform: sun
-        event: sunset
+      - platform: state
+        entity_id: binary_sensor.rf_doorbell
+        to: "on"
     action:
-      - service: switch.turn_on
+      - service: notify.mobile_app_phone
+        data:
+          message: "🔔 Someone is at the door!"
+      - service: light.turn_on
         target:
-          entity_id: switch.esp32_relay_1
+          entity_id: light.porch
 ```
 
-### Create a Scene
+### Panic Button Alert
 
 ```yaml
-scene:
-  - name: Movie Mode
-    entities:
-      switch.esp32_relay_1:
-        state: off  # Main lights off
-      switch.esp32_relay_2:
-        state: on   # Ambient lights on
+automation:
+  - alias: "RF Panic Button"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.rf_panic
+        to: "on"
+    action:
+      - service: notify.all_devices
+        data:
+          message: "🚨 PANIC BUTTON PRESSED!"
+      - service: scene.turn_on
+        target:
+          entity_id: scene.all_lights_on
 ```
 
-### Add to Dashboard
+### Scene Activation
 
 ```yaml
-type: entities
-title: Relay Controller
-entities:
-  - entity: switch.esp32_relay_1
-    name: Living Room Light
-  - entity: switch.esp32_relay_2
-    name: Bedroom Fan
+automation:
+  - alias: "RF Movie Mode"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.rf_remote_1
+        to: "on"
+    action:
+      - service: scene.turn_on
+        target:
+          entity_id: scene.movie_mode
 ```
 
 📘 **More examples**: See `home_assistant_example.yaml`
@@ -215,34 +225,26 @@ entities:
 
 ## 🔧 Customize Your Setup
 
-### Change Number of Relays
+### Change RF Pin
 
 Edit `include/config.h`:
 ```cpp
-#define NUM_RELAYS 8  // Change to your relay count
-
-const int RELAY_PINS[NUM_RELAYS] = {
-    23, 22, 21, 19, 18, 5, 4, 2  // Your GPIO pins
-};
-
-const char* RELAY_NAMES[NUM_RELAYS] = {
-    "Living Room Light",
-    "Bedroom Fan",
-    "Garden Pump",
-    "Garage Door",
-    "Pool Pump",
-    "Fountain",
-    "LED Strip",
-    "Sprinkler"
-};
+#define RF_RECEIVER_PIN 22  // Change to your desired GPIO
 ```
 
 ### Change Hostname
 
 Edit `include/config.h`:
 ```cpp
-#define MDNS_HOSTNAME "my-relay"
-// Access at: http://my-relay.local
+#define MDNS_HOSTNAME "my-rf-bridge"
+// Access at: http://my-rf-bridge.local
+```
+
+### Change Trigger Duration
+
+Edit `include/config.h`:
+```cpp
+#define RF_TRIGGER_DURATION 5000  // 5 seconds instead of 2
 ```
 
 ### Customize Web Interface
@@ -257,8 +259,6 @@ After changes, re-upload:
 pio run --target uploadfs
 ```
 
-📘 **Full customization guide**: See `PROJECT_SUMMARY.md`
-
 ---
 
 ## 📚 Documentation Index
@@ -268,34 +268,31 @@ pio run --target uploadfs
 | **GET_STARTED.md** ⭐ | You are here - Quick start |
 | **README.md** | Complete reference |
 | **SETUP_GUIDE.md** | Detailed step-by-step setup |
-| **WIRING.md** | Hardware connections & safety |
+| **WIRING.md** | Hardware connections |
+| **RF_RECEIVER_GUIDE.md** | Complete RF guide |
 | **TROUBLESHOOTING.md** | When something doesn't work |
 | **QUICK_REFERENCE.md** | Quick lookup & commands |
-| **PROJECT_SUMMARY.md** | Technical overview |
-| **home_assistant_example.yaml** | HA integration examples |
 
 ---
 
 ## ❓ Common Questions
 
-### Q: Can't access esp32-relay.local?
+### Q: Can't access esp32-rf.local?
 **A:** Use the IP address instead (check serial monitor). Some systems need Bonjour/Avahi for .local to work.
 
-### Q: Relays are backwards (ON when should be OFF)?
-**A:** You have an active-low relay module. See TROUBLESHOOTING.md section "Relays are inverted".
-
-### Q: MQTT not connecting?
+### Q: RF code not capturing?
 **A:** 
-1. Verify MQTT broker is running
-2. Check IP address is correct
-3. Test with: `mosquitto_pub -h YOUR_IP -t test -m hello`
+1. Check wiring (DATA to GPIO 22)
+2. Try 5V power for receiver
+3. Move transmitter closer
+4. Try different buttons
 
 ### Q: Home Assistant not discovering?
 **A:**
 1. Ensure `discovery: true` in HA MQTT config
-2. Restart Home Assistant
-3. Check MQTT broker is running
-4. Restart ESP32 to republish discovery
+2. Learn at least one RF code first
+3. Restart Home Assistant
+4. Check MQTT broker is running
 
 ### Q: How do I reset everything?
 **A:** Via web interface: Settings → Reset Configuration
@@ -304,27 +301,21 @@ pio run --target uploadfs
 
 ---
 
-## 🎓 Learn More
+## 🎓 Use Cases
 
-### Expand Your System
+### Integrate RF Devices
+- Doorbells
+- Remote controls
+- Key fobs
+- Motion sensors
+- Window/door sensors
 
-**Add More Relays**:
-- ESP32 supports up to ~16 GPIO pins
-- Easy to expand in `config.h`
-
-**Add Features**:
-- Temperature sensors
-- Energy monitoring
-- LCD display
-- Physical buttons
-- IR remote control
-
-**Integration Ideas**:
-- Automate based on time
-- Control based on sensors
-- Create complex scenes
-- Voice control via Alexa/Google
-- Mobile app notifications
+### Automation Ideas
+- Doorbell notifications
+- Panic button alerts
+- Scene activation
+- Presence detection
+- Elderly care alerts
 
 ---
 
@@ -335,11 +326,7 @@ pio run --target uploadfs
 - ✅ Use strong WiFi password
 - ✅ Use MQTT authentication
 
-**For Internet Access**:
-- ⚠️ Use VPN (WireGuard, OpenVPN)
-- ⚠️ Add web authentication
-- ⚠️ Use HTTPS/SSL
-- ⚠️ Never expose directly to internet
+**Note**: RF signals are NOT secure - don't use for critical security functions.
 
 ---
 
@@ -358,26 +345,26 @@ pio run --target uploadfs
 pio device monitor
 
 # Test MQTT
-mosquitto_sub -h YOUR_MQTT_IP -t "#" -v
+mosquitto_sub -h YOUR_MQTT_IP -t "homeassistant/#" -v
 
 # Check WiFi
-ping esp32-relay.local
+ping esp32-rf.local
 ```
 
 ---
 
 ## ✅ Setup Checklist
 
-- [ ] Hardware wired correctly
+- [ ] RF receiver wired correctly
 - [ ] Firmware uploaded successfully
 - [ ] Filesystem uploaded
 - [ ] ESP32 connected to WiFi
 - [ ] Web interface accessible
-- [ ] Relays respond to web controls
+- [ ] At least one RF code learned
 - [ ] MQTT broker configured
 - [ ] Home Assistant connected
-- [ ] Relays appear in HA
-- [ ] HA switches control relays
+- [ ] RF trigger appears in HA
+- [ ] Trigger activates when RF pressed
 - [ ] Created first automation
 
 **All checked?** Congratulations! 🎉
@@ -386,26 +373,17 @@ ping esp32-relay.local
 
 ## 🚀 Next Steps
 
-1. **Create Automations** in Home Assistant
-2. **Add to Dashboard** for easy access
-3. **Set up Voice Control** via HA
-4. **Create Scenes** for multiple relays
+1. **Learn all your RF codes** with meaningful names
+2. **Create Automations** in Home Assistant
+3. **Set up Notifications** for important events
+4. **Add to Dashboard** for monitoring
 5. **Share Your Setup** with the community!
-
----
-
-## 📸 Show Off Your Build
-
-Built something cool? Share it!
-- Take photos of your setup
-- Document your use case
-- Help others learn
 
 ---
 
 ## 🎉 You're All Set!
 
-Your ESP32 Relay Controller is now:
+Your ESP32 RF-to-MQTT Bridge is now:
 - ✅ Fully functional
 - ✅ Web accessible
 - ✅ Home Assistant integrated
@@ -417,12 +395,7 @@ Your ESP32 Relay Controller is now:
 ---
 
 *Need help? Check TROUBLESHOOTING.md*
-*Want to customize? See PROJECT_SUMMARY.md*
+*Want to customize? See config.h*
 *Questions? Read the FAQ in README.md*
 
 **Happy Automating! 🚀**
-
-
-
-
-

@@ -1,10 +1,10 @@
 # mDNS (.local URL) Fix
 
 ## Problem
-The `.local` URL (e.g., `http://esp32-relay.local`) was not working on multiple devices after recent code changes, even though it worked before.
+The `.local` URL (e.g., `http://esp32-rf.local`) may not work on some devices or may stop working after WiFi reconnection.
 
 ## Root Cause
-The event-driven WiFi reconnection logic wasn't giving mDNS enough time to properly initialize and announce its service on the network. mDNS requires:
+The event-driven WiFi reconnection logic needs proper timing for mDNS to initialize and announce its service on the network. mDNS requires:
 1. WiFi to be fully stabilized
 2. Time to clean up previous instances
 3. Time to broadcast service announcements
@@ -38,17 +38,7 @@ void setupMDNS() {
 - Clean mDNS restart on reconnection
 - Better error reporting
 
-```cpp
-void onWiFiConnect() {
-    delay(100);      // WiFi stabilization
-    MDNS.end();      // Clean shutdown
-    delay(50);       // Ensure clean state
-    MDNS.begin();    // Restart
-    delay(100);      // Service announcement
-}
-```
-
-### 3. **Added Troubleshooting API Endpoints**
+### 3. **Troubleshooting API Endpoints**
 
 #### Check mDNS Status
 ```bash
@@ -57,8 +47,8 @@ GET http://192.168.x.x/api/mdns/status
 Response:
 ```json
 {
-  "hostname": "esp32-relay",
-  "url": "http://esp32-relay.local",
+  "hostname": "esp32-rf",
+  "url": "http://esp32-rf.local",
   "ip": "192.168.1.100",
   "wifi_connected": true
 }
@@ -68,13 +58,6 @@ Response:
 ```bash
 POST http://192.168.x.x/api/mdns/restart
 ```
-Response:
-```json
-{
-  "success": true,
-  "message": "mDNS restarted"
-}
-```
 
 ## Testing Steps
 
@@ -83,16 +66,14 @@ After reboot, look for these messages:
 
 ✅ **Success**:
 ```
-[mDNS] Responder started: http://esp32-relay.local
+[mDNS] Responder started: http://esp32-rf.local
 [mDNS] IP Address: 192.168.x.x
-[mDNS] HTTP service announced on network
-[mDNS] Device should now be discoverable at esp32-relay.local
+[mDNS] HTTP service registered
 ```
 
 ❌ **Failure**:
 ```
 [mDNS] ERROR: Failed to start mDNS responder!
-[mDNS] .local URL will not work - use IP address instead
 ```
 
 ### Step 2: Test from Multiple Devices
@@ -100,18 +81,15 @@ After reboot, look for these messages:
 **From Computer:**
 ```bash
 # Ping test
-ping esp32-relay.local
-
-# DNS lookup
-nslookup esp32-relay.local
+ping esp32-rf.local
 
 # Browser test
-http://esp32-relay.local
+http://esp32-rf.local
 ```
 
 **From Phone/Tablet:**
 - Open browser
-- Navigate to `http://esp32-relay.local`
+- Navigate to `http://esp32-rf.local`
 - Should load immediately
 
 ### Step 3: Manual Restart (If Needed)
@@ -126,26 +104,6 @@ curl -X POST http://192.168.x.x/api/mdns/restart
 curl http://192.168.x.x/api/mdns/status
 ```
 
-## Expected Behavior
-
-### ✅ After First Boot
-1. ESP32 connects to WiFi
-2. mDNS initializes (with delays for stability)
-3. Service announced on network
-4. `.local` URL works within 5-10 seconds
-
-### ✅ After WiFi Reconnection
-1. WiFi reconnects
-2. mDNS cleanly restarts
-3. Service re-announced
-4. `.local` URL works within 5-10 seconds
-
-### ✅ Devices Can Access
-- Computers (Mac/Windows/Linux)
-- Phones (iOS/Android)
-- Tablets
-- Home Assistant
-
 ## Common Issues & Solutions
 
 ### Issue 1: `.local` Works on Some Devices, Not Others
@@ -155,7 +113,7 @@ curl http://192.168.x.x/api/mdns/status
 **Solution**:
 - **Windows**: Install Bonjour Print Services or iTunes (includes mDNS)
 - **Mac/iOS**: Should work natively
-- **Android**: Install "Bonjour Browser" app or use IP address
+- **Android**: Some devices don't support .local - use IP address
 - **Linux**: Install `avahi-daemon`
 
 ### Issue 2: `.local` Stops Working After a While
@@ -179,12 +137,12 @@ curl -X POST http://192.168.x.x/api/mdns/restart
 
 ### Issue 4: Works via IP, Not via `.local`
 
-**Cause**: Network doesn't allow multicast DNS (common in enterprise networks)
+**Cause**: Network doesn't allow multicast DNS
 
 **Solution**:
 - Use IP address bookmark: `http://192.168.x.x`
 - Check router for "multicast" or "mDNS" settings
-- Some routers call it "AP Isolation" - disable it
+- Disable "AP Isolation" on router
 
 ## Network Requirements for mDNS
 
@@ -207,11 +165,8 @@ curl -X POST http://192.168.x.x/api/mdns/restart
 # Check if device is advertising
 dns-sd -B _http._tcp local.
 
-# Look for: "esp32-relay"
-# Press Ctrl+C after a few seconds
-
 # Query specific host
-dns-sd -G v4 esp32-relay.local
+dns-sd -G v4 esp32-rf.local
 
 # Flush DNS cache (Mac)
 sudo killall -HUP mDNSResponder
@@ -220,62 +175,22 @@ sudo killall -HUP mDNSResponder
 ### From Windows
 ```cmd
 # Ping test
-ping esp32-relay.local
+ping esp32-rf.local
 
 # If doesn't work, install Bonjour
-# Download: Apple Bonjour Print Services
 ```
 
-### Via API (From any device with curl)
-```bash
-# Check mDNS status
-curl http://192.168.x.x/api/mdns/status
+## Quick Test Checklist
 
-# Restart mDNS
-curl -X POST http://192.168.x.x/api/mdns/restart
-```
+- [ ] Serial monitor shows "mDNS responder started"
+- [ ] Serial monitor shows "HTTP service registered"
+- [ ] Can ping `esp32-rf.local` from computer
+- [ ] Can access `http://esp32-rf.local` in browser
+- [ ] Works on multiple devices (phone, computer)
+- [ ] Still works after WiFi reconnection
+- [ ] IP address access still works: `http://192.168.x.x`
 
-## Serial Monitor Messages Guide
-
-| Message | Meaning | Action |
-|---------|---------|--------|
-| `mDNS responder started` | ✅ Success | None needed |
-| `HTTP service announced` | ✅ Broadcasting | None needed |
-| `Device should now be discoverable` | ✅ Ready | Test .local URL |
-| `ERROR: Failed to start mDNS` | ❌ Failed | Check WiFi, restart ESP32 |
-| `Waiting for WiFi connection` | ⏳ Not ready | Wait or check WiFi |
-
-## Performance Impact
-
-The timing delays added for mDNS stability:
-- **Initial setup**: +250ms (one-time at boot)
-- **WiFi reconnection**: +250ms (only when reconnecting)
-- **Normal operation**: 0ms (no impact)
-
-These delays are negligible and only happen during WiFi connection events, ensuring mDNS works reliably without affecting normal operation.
-
-## Technical Details
-
-### mDNS Service Advertisement
-```
-Service: _http._tcp
-Port: 80
-Hostname: esp32-relay.local
-TXT Records: None (basic service)
-```
-
-### Multicast Address
-```
-IPv4: 224.0.0.251:5353
-IPv6: FF02::FB:5353
-```
-
-### Why Delays Are Needed
-1. **100ms after WiFi connect**: Allows TCP/IP stack to fully initialize
-2. **50ms after MDNS.end()**: Ensures clean shutdown of previous instance
-3. **100ms after MDNS.begin()**: Allows initial service announcement packets to be sent
-
-Without these delays, mDNS may start before the network is ready or announce before it's fully initialized, causing inconsistent behavior.
+If all checkboxes are ✅, mDNS is working correctly!
 
 ## Summary
 
@@ -285,21 +200,5 @@ Without these delays, mDNS may start before the network is ready or announce bef
 - Added proper timing delays
 - Improved error handling
 - Added troubleshooting API endpoints
-- Enhanced logging
 
 **Result**: `.local` URL now works reliably across all devices and survives WiFi reconnections
-
----
-
-## Quick Test Checklist
-
-- [ ] Serial monitor shows "mDNS responder started"
-- [ ] Serial monitor shows "HTTP service announced"
-- [ ] Can ping `esp32-relay.local` from computer
-- [ ] Can access `http://esp32-relay.local` in browser
-- [ ] Works on multiple devices (phone, computer, etc.)
-- [ ] Still works after WiFi reconnection
-- [ ] IP address access still works: `http://192.168.x.x`
-
-If all checkboxes are ✅, mDNS is working correctly!
-

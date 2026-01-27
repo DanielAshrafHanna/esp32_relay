@@ -1,4 +1,4 @@
-# ESP32 Relay Controller - Quick Setup Guide
+# ESP32 RF-to-MQTT Bridge - Quick Setup Guide
 
 ## Step-by-Step Setup
 
@@ -6,27 +6,25 @@
 
 #### Materials Needed:
 - ESP32 development board
-- 4-channel relay module (or your specific relay board)
-- Jumper wires
+- SYN480R 433MHz RF Receiver module
+- Jumper wires (3 wires)
 - USB cable
-- Power supply for relays (if needed)
+- 17.3cm wire for antenna (optional but recommended)
 
 #### Wiring Connections:
 
 ```
-ESP32 GPIO 23  →  Relay 1 Signal (IN1)
-ESP32 GPIO 22  →  Relay 2 Signal (IN2)
-ESP32 GPIO 21  →  Relay 3 Signal (IN3)
-ESP32 GPIO 19  →  Relay 4 Signal (IN4)
-ESP32 GND      →  Relay Module GND
-ESP32 3.3V/5V  →  Relay Module VCC (check your module voltage)
+SYN480R Receiver → ESP32
+─────────────────────────
+VCC              → 3.3V or 5V
+GND              → GND  
+DATA             → GPIO 22
 ```
 
 **⚠️ Important Notes:**
-- Some relay modules are **active LOW** (trigger on LOW signal)
-- Some are **active HIGH** (trigger on HIGH signal)
-- Verify your relay module type and adjust code if needed
-- Use appropriate power supply for high-current loads
+- 5V VCC gives better RF range than 3.3V
+- Add a 17.3cm wire antenna for better reception
+- Keep receiver away from the ESP32 if possible (reduces interference)
 
 ### 2. Install PlatformIO
 
@@ -47,34 +45,14 @@ pip install platformio
 
 1. Open `include/config.h`
 
-2. Set the number of relays:
+2. Verify RF pin (change if needed):
 ```cpp
-#define NUM_RELAYS 4  // Change this number
+#define RF_RECEIVER_PIN 22  // GPIO pin for RF receiver
 ```
 
-3. Define your GPIO pins:
+3. (Optional) Change hostname:
 ```cpp
-const int RELAY_PINS[NUM_RELAYS] = {
-    23,  // Relay 1
-    22,  // Relay 2
-    21,  // Relay 3
-    19   // Relay 4
-};
-```
-
-4. Name your relays:
-```cpp
-const char* RELAY_NAMES[NUM_RELAYS] = {
-    "Living Room Light",
-    "Bedroom Fan",
-    "Garden Pump",
-    "Garage Door"
-};
-```
-
-5. (Optional) Change hostname:
-```cpp
-#define MDNS_HOSTNAME "my-smart-home"
+#define MDNS_HOSTNAME "my-rf-bridge"
 ```
 
 ### 4. Upload to ESP32
@@ -100,7 +78,7 @@ pio device monitor
 1. **Power on ESP32** - Look for serial output showing AP mode
 
 2. **Connect to WiFi AP**:
-   - SSID: `ESP32-Relay-Setup`
+   - SSID: `ESP32-RF-Setup`
    - Password: `12345678`
 
 3. **Configure Settings**:
@@ -159,37 +137,29 @@ mqtt:
 3. **Verify Connection**:
    - Go to **Settings** → **Devices & Services**
    - Click on **MQTT**
-   - You should see "ESP32-Relay" device with 4 switches
+   - You should see "ESP32-RF-Bridge" device (after learning RF codes)
 
-#### Manual Configuration (If Auto-Discovery Fails)
+### 8. Learn RF Codes
 
-Add to `configuration.yaml`:
-```yaml
-switch:
-  - platform: mqtt
-    name: "Living Room Light"
-    unique_id: esp32_relay1
-    state_topic: "homeassistant/switch/esp32-relay/relay1/state"
-    command_topic: "homeassistant/switch/esp32-relay/relay1/set"
-    payload_on: "ON"
-    payload_off: "OFF"
-    
-  - platform: mqtt
-    name: "Bedroom Fan"
-    unique_id: esp32_relay2
-    state_topic: "homeassistant/switch/esp32-relay/relay2/state"
-    command_topic: "homeassistant/switch/esp32-relay/relay2/set"
-    payload_on: "ON"
-    payload_off: "OFF"
-    
-  # Repeat for other relays...
-```
+1. **Access RF Manager**:
+   - Go to `http://esp32-rf.local/rf_manager.html`
+   - Or click "RF Manager" from main page
 
-### 8. Access Web Interface
+2. **Learn a code**:
+   - Enter a name (e.g., "Doorbell")
+   - Click "Start Learning Mode"
+   - Press button on your RF transmitter
+   - Code is captured automatically
+
+3. **Verify in Home Assistant**:
+   - New binary sensor appears for each learned code
+   - Press RF transmitter → sensor turns ON briefly
+
+### 9. Access Web Interface
 
 Open your browser and go to:
 ```
-http://esp32-relay.local
+http://esp32-rf.local
 ```
 
 Or use the IP address shown in serial monitor:
@@ -197,26 +167,26 @@ Or use the IP address shown in serial monitor:
 http://192.168.1.XXX
 ```
 
-### 9. Test Everything
+### 10. Test Everything
 
 #### Test via Web Interface:
 1. Open web interface
-2. Click relay buttons
-3. Verify relays click on/off
+2. Go to RF Manager
+3. Verify learned codes are listed
+4. Check MQTT connection status
 
 #### Test via Home Assistant:
 1. Go to **Developer Tools** → **States**
-2. Find your relay switches
-3. Toggle them on/off
-4. Verify relays respond
+2. Find your RF binary sensors
+3. Press RF transmitter
+4. Verify sensor state changes
 
 #### Test MQTT (Optional):
 ```bash
-# Subscribe to state
-mosquitto_sub -h localhost -t "homeassistant/switch/esp32-relay/#"
+# Subscribe to all topics
+mosquitto_sub -h localhost -t "homeassistant/switch/esp32-rf/#" -v
 
-# Publish command
-mosquitto_pub -h localhost -t "homeassistant/switch/esp32-relay/relay1/set" -m "ON"
+# Press RF transmitter - you should see state changes
 ```
 
 ## Common Issues & Solutions
@@ -230,7 +200,6 @@ mosquitto_pub -h localhost -t "homeassistant/switch/esp32-relay/relay1/set" -m "
 ### ❌ Web interface not loading
 - **Solution**: 
   - Re-upload filesystem: `pio run --target uploadfs`
-  - Check LittleFS is enabled in `platformio.ini`
   - Use IP address instead of `.local`
 
 ### ❌ MQTT not connecting
@@ -240,59 +209,45 @@ mosquitto_pub -h localhost -t "homeassistant/switch/esp32-relay/relay1/set" -m "
   - Test with MQTT client: `mosquitto_pub -h IP -t test -m hello`
   - Check firewall allows port 1883
 
-### ❌ Relays not switching
+### ❌ RF code not capturing
 - **Solution**: 
-  - Check wiring connections
-  - Verify GPIO pins in `config.h`
-  - Check relay module power supply
-  - Your relay might be active-low (invert logic)
+  - Check wiring connections (especially DATA pin)
+  - Verify GPIO pin in `config.h`
+  - Try 5V instead of 3.3V for receiver
+  - Move transmitter closer
+  - Try different buttons
 
 ### ❌ Home Assistant not discovering
 - **Solution**: 
   - Ensure `discovery: true` in MQTT config
   - Check `discovery_prefix: homeassistant` matches
+  - Learn at least one RF code first
   - Restart Home Assistant
   - Check HA MQTT logs
-  - Manually subscribe to: `homeassistant/switch/#`
 
-## Active-Low Relay Modules
-
-If your relays turn ON when they should be OFF, you have an active-low module.
-
-**Fix**: Edit `src/relay_control.cpp`:
-```cpp
-void RelayControl::setState(int relayIndex, bool state) {
-    if (relayIndex >= 0 && relayIndex < NUM_RELAYS) {
-        relayStates[relayIndex] = state;
-        // Invert the signal for active-low relays
-        digitalWrite(RELAY_PINS[relayIndex], state ? LOW : HIGH);
-        Serial.printf("Relay %d set to %s\n", relayIndex + 1, state ? "ON" : "OFF");
-    }
-}
-```
+### ❌ Weak RF range
+- **Solution**:
+  - Add 17.3cm wire antenna to receiver
+  - Use 5V power for receiver
+  - Move receiver away from ESP32/router
+  - Position receiver higher up
 
 ## Next Steps
 
 Once everything is working:
 
-1. **Create Automations** in Home Assistant
-2. **Add to Lovelace Dashboard** for easy control
-3. **Set up scenes** with multiple relays
-4. **Integrate with voice assistants** (Alexa, Google Home)
-5. **Add schedules** for automated control
+1. **Learn all your RF codes** with meaningful names
+2. **Create Automations** in Home Assistant
+3. **Set up notifications** for important triggers (doorbell, alerts)
+4. **Integrate with voice assistants** (Alexa, Google Home via HA)
 
 ## Support Resources
 
 - **PlatformIO Docs**: https://docs.platformio.org/
 - **ESP32 Docs**: https://docs.espressif.com/
 - **Home Assistant MQTT**: https://www.home-assistant.io/integrations/mqtt/
-- **WiFiManager**: https://github.com/tzapu/WiFiManager
+- **RCSwitch Library**: https://github.com/sui77/rc-switch
 
 ---
 
-**Congratulations! Your ESP32 Relay Controller is now set up and integrated with Home Assistant! 🎉**
-
-
-
-
-
+**Congratulations! Your ESP32 RF-to-MQTT Bridge is now set up and integrated with Home Assistant! 🎉**

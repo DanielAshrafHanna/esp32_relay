@@ -1,10 +1,10 @@
-# Troubleshooting Guide
+# Troubleshooting Guide - ESP32 RF-to-MQTT Bridge
 
 ## Common Issues and Solutions
 
 ### WiFi & Connection Issues
 
-#### ❌ Cannot find ESP32-Relay-Setup WiFi network
+#### ❌ Cannot find ESP32-RF-Setup WiFi network
 **Symptoms**: WiFi AP not visible on phone/computer
 
 **Solutions**:
@@ -18,13 +18,13 @@
 ```bash
 # Serial output should show:
 WiFi Manager
-AP Name: ESP32-Relay-Setup
+AP Name: ESP32-RF-Setup
 ```
 
 ---
 
 #### ❌ Connected to AP but captive portal doesn't open
-**Symptoms**: Connected to ESP32-Relay-Setup but no configuration page
+**Symptoms**: Connected to ESP32-RF-Setup but no configuration page
 
 **Solutions**:
 1. **Disable mobile data** on your phone
@@ -59,7 +59,7 @@ IP address: 192.168.x.x
 
 ---
 
-#### ❌ Cannot access http://esp32-relay.local
+#### ❌ Cannot access http://esp32-rf.local
 **Symptoms**: mDNS hostname not working
 
 **Solutions**:
@@ -114,25 +114,22 @@ http://192.168.1.XXX
    sudo tail -f /var/log/mosquitto/mosquitto.log
    ```
 
-6. **Test from ESP32 network**:
-   ```bash
-   mosquitto_pub -h BROKER_IP -p 1883 -t test -m "test"
-   ```
-
 **Serial Debug**:
 ```
 Look for:
-Attempting MQTT connection...connected
+[MQTT] Connected!
 ```
 
 ---
 
-#### ❌ Home Assistant not discovering devices
-**Symptoms**: No ESP32 device in HA
+#### ❌ Home Assistant not discovering RF triggers
+**Symptoms**: No ESP32-RF-Bridge device in HA
 
 **Solutions**:
 
-1. **Verify MQTT discovery is enabled** in `configuration.yaml`:
+1. **Learn at least one RF code first** - no discovery without codes
+
+2. **Verify MQTT discovery is enabled** in `configuration.yaml`:
    ```yaml
    mqtt:
      broker: BROKER_IP
@@ -140,120 +137,108 @@ Attempting MQTT connection...connected
      discovery_prefix: homeassistant
    ```
 
-2. **Check MQTT integration** in HA:
+3. **Check MQTT integration** in HA:
    - Settings → Devices & Services → MQTT
    - Should show "configured"
 
-3. **Restart Home Assistant** after config changes
+4. **Restart Home Assistant** after config changes
 
-4. **Check MQTT topics** in HA:
+5. **Check MQTT topics** in HA:
    - Developer Tools → MQTT
    - Listen to: `homeassistant/#`
    - You should see discovery messages
 
-5. **Manually trigger discovery**:
-   - Restart ESP32 (it republishes on boot)
-
-6. **Check HA logs**:
+6. **Force republish discovery**:
    ```bash
-   # Look for MQTT errors
-   tail -f /config/home-assistant.log | grep mqtt
+   curl -X POST http://esp32-rf.local/api/mqtt/rediscover
    ```
-
-**Manual Test**:
-```bash
-# Subscribe to all homeassistant topics:
-mosquitto_sub -h localhost -t "homeassistant/#" -v
-
-# You should see:
-homeassistant/switch/esp32-relay/relay1/config {...}
-```
 
 ---
 
-#### ❌ Relays don't respond to HA commands
-**Symptoms**: HA shows switches but they don't control relays
+### RF Receiver Issues
 
-**Solutions**:
-
-1. **Verify MQTT connection** on ESP32 (check serial)
-
-2. **Check command topics**:
-   ```bash
-   # Test manual command:
-   mosquitto_pub -h BROKER_IP -t "homeassistant/switch/esp32-relay/relay1/set" -m "ON"
-   ```
-
-3. **Monitor ESP32 subscriptions**:
-   ```bash
-   # Serial should show:
-   Subscribed to: homeassistant/switch/esp32-relay/relay1/set
-   Message arrived [topic]: ON
-   ```
-
-4. **Check topic names match** in HA config
-
-5. **Verify QoS and retain** settings
-
----
-
-### Relay Hardware Issues
-
-#### ❌ Relays not switching
-**Symptoms**: No click sound, LED doesn't change
+#### ❌ RF code not capturing
+**Symptoms**: Learning mode times out without capturing signal
 
 **Solutions**:
 
 1. **Check wiring**:
-   - Verify GPIO pins match `config.h`
-   - Ensure GND is connected
-   - Check VCC voltage (3.3V or 5V based on module)
+   - Verify DATA pin is connected to GPIO 22
+   - Verify GND is connected
+   - Verify VCC has power (3.3V or 5V)
 
-2. **Test GPIO directly**:
-   ```cpp
-   // Add to setup() for testing:
-   digitalWrite(23, HIGH);
-   delay(1000);
-   digitalWrite(23, LOW);
+2. **Check power supply**:
+   - Use 5V for better sensitivity
+   - Ensure stable power
+
+3. **Check transmitter**:
+   - Verify transmitter has battery/power
+   - Move transmitter closer (within 1 meter for testing)
+   - Try different buttons on the transmitter
+
+4. **Check serial monitor**:
+   ```
+   # Should see when learning:
+   [RF] Learning mode activated - press transmitter button
+   
+   # On successful capture:
+   [RF] Code learned: XXXXXX (bit: XX, protocol: X)
    ```
 
-3. **Check relay module**:
-   - Some need external power
-   - Jumper settings (check JD-VCC)
-   - Test with jumper wire to GND/VCC
-
-4. **Verify signal level**:
-   - Some relays need 5V signal
-   - ESP32 outputs 3.3V (may need level shifter)
+5. **Try different transmitter**:
+   - Some transmitters use rolling codes (not compatible)
+   - Use fixed-code transmitters
 
 ---
 
-#### ❌ Relays are inverted (ON when should be OFF)
-**Symptoms**: Active-low relay module
+#### ❌ Multiple codes from same button
+**Symptoms**: Same button produces different codes each time
 
-**Solution**:
-Edit `src/relay_control.cpp`:
-```cpp
-void RelayControl::setState(int relayIndex, bool state) {
-    if (relayIndex >= 0 && relayIndex < NUM_RELAYS) {
-        relayStates[relayIndex] = state;
-        // Change HIGH/LOW to LOW/HIGH:
-        digitalWrite(RELAY_PINS[relayIndex], state ? LOW : HIGH);
-        Serial.printf("Relay %d set to %s\n", relayIndex + 1, state ? "ON" : "OFF");
-    }
-}
-```
+**Cause**: Transmitter uses rolling codes for security
 
-Also in `init()`:
-```cpp
-void RelayControl::init() {
-    for (int i = 0; i < NUM_RELAYS; i++) {
-        pinMode(RELAY_PINS[i], OUTPUT);
-        digitalWrite(RELAY_PINS[i], HIGH);  // Changed from LOW
-        relayStates[i] = false;
-    }
-}
-```
+**Solution**: These transmitters are not compatible. Use fixed-code transmitters instead.
+
+---
+
+#### ❌ Weak RF range
+**Symptoms**: Only works when transmitter is very close
+
+**Solutions**:
+
+1. **Add antenna**:
+   - Solder 17.3cm wire to ANT pad
+   - Keep antenna vertical if possible
+   - Keep away from metal objects
+
+2. **Use 5V power**:
+   - Better sensitivity than 3.3V
+   - Connect VCC to ESP32 5V pin
+
+3. **Move receiver**:
+   - Away from ESP32 (reduces interference)
+   - Away from WiFi router
+   - Away from other electronics
+
+4. **Check for interference**:
+   - Other 433MHz devices nearby
+   - Strong RF sources
+   - Metal enclosures
+
+---
+
+#### ❌ False triggers
+**Symptoms**: Trigger activates unexpectedly
+
+**Causes**:
+- Other 433MHz devices nearby
+- Electrical noise
+- Poor antenna connection
+
+**Solutions**:
+1. Learn a different button/transmitter
+2. Add shielding around receiver
+3. Use transmitters with longer codes
+4. Improve antenna connection
 
 ---
 
@@ -276,6 +261,7 @@ void RelayControl::init() {
 
 3. **Verify files in data/ folder**:
    - index.html
+   - rf_manager.html
    - style.css
    - script.js
 
@@ -293,8 +279,8 @@ void RelayControl::init() {
 
 ---
 
-#### ❌ Web interface not updating relay states
-**Symptoms**: Buttons don't work or states wrong
+#### ❌ Web interface not updating
+**Symptoms**: Status doesn't refresh
 
 **Solutions**:
 
@@ -302,20 +288,11 @@ void RelayControl::init() {
    - Look for JavaScript errors
    - Check network requests
 
-2. **Verify API endpoints**:
-   ```bash
-   # Test from command line:
-   curl http://esp32-relay.local/api/relays
-   curl -X POST http://esp32-relay.local/api/relay \
-     -H "Content-Type: application/json" \
-     -d '{"relay":1,"state":true}'
-   ```
+2. **Clear browser cache** (Ctrl+Shift+R)
 
-3. **Clear browser cache** (Ctrl+Shift+R)
+3. **Try different browser**
 
-4. **Try different browser**
-
-5. **Check async web server** is running (serial):
+4. **Verify web server** is running (serial):
    ```
    Web server started
    ```
@@ -376,25 +353,6 @@ void RelayControl::init() {
 
 ---
 
-#### ❌ Out of memory errors
-**Symptoms**: Sketch too big, OTA fails
-
-**Solutions**:
-
-1. **Use correct partition scheme** in `platformio.ini`:
-   ```ini
-   board_build.partitions = min_spiffs.csv
-   ```
-
-2. **Reduce features** if needed
-
-3. **Enable optimization**:
-   ```ini
-   build_flags = -Os
-   ```
-
----
-
 ### Reset & Recovery
 
 #### 🔧 Factory Reset (Software)
@@ -402,7 +360,7 @@ void RelayControl::init() {
 Via web interface:
 1. Go to Settings
 2. Click "Reset Configuration"
-3. Reconnect to `ESP32-Relay-Setup`
+3. Reconnect to `ESP32-RF-Setup`
 
 Via serial:
 ```cpp
@@ -440,7 +398,7 @@ pio device monitor --baud 115200
 
 Subscribe to all topics:
 ```bash
-mosquitto_sub -h BROKER_IP -t "#" -v
+mosquitto_sub -h BROKER_IP -t "homeassistant/#" -v
 ```
 
 Test publish:
@@ -475,8 +433,8 @@ dns-sd -B _http._tcp
 ### What to Include When Asking for Help
 
 1. **Serial monitor output** (full boot sequence)
-2. **Hardware details** (ESP32 model, relay module)
-3. **Configuration** (pins, settings from config.h)
+2. **Hardware details** (ESP32 model, RF receiver model)
+3. **Configuration** (RF pin from config.h)
 4. **What you've tried** (from this guide)
 5. **Expected vs actual behavior**
 
@@ -498,18 +456,12 @@ pio pkg list
 ## Prevention Tips
 
 1. **Always backup working configuration**
-2. **Document your GPIO pin assignments**
+2. **Document your RF codes** (transmitter, button, name)
 3. **Use static IP for MQTT broker**
 4. **Keep backup of working firmware**
-5. **Test on breadboard before permanent install**
-6. **Use fused power supplies**
-7. **Label relay outputs**
+5. **Use proper antenna for RF**
+6. **Test range before permanent installation**
 
 ---
 
 **Still having issues?** Double-check the wiring, verify all IP addresses, and review the serial monitor output carefully. Most issues are configuration-related and can be resolved by carefully following this guide.
-
-
-
-
-

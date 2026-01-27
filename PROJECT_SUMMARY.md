@@ -1,33 +1,33 @@
-# ESP32 Relay Controller - Project Summary
+# ESP32 RF-to-MQTT Bridge - Project Summary
 
 ## 📋 Project Overview
 
-A complete ESP32-based smart relay controller with WiFi configuration portal and full Home Assistant integration. This project allows you to control multiple relays via a web interface and integrate seamlessly with Home Assistant using MQTT.
+A complete ESP32-based RF-to-MQTT bridge that captures 433MHz RF signals and publishes them to Home Assistant via MQTT. This project allows you to integrate RF remotes, doorbells, sensors, and other 433MHz devices into your smart home automation system.
 
 ---
 
 ## ✨ Key Features
 
 ### Core Functionality
-- ✅ **Multi-Relay Control**: Control 4 relays (easily expandable to 8+)
+- ✅ **433MHz RF Reception**: SYN480R receiver with multi-code learning
 - ✅ **WiFi Manager**: Captive portal for WiFi credentials (no hardcoding)
 - ✅ **Web Interface**: Modern, responsive UI with real-time updates
-- ✅ **mDNS Support**: Access via `http://esp32-relay.local`
+- ✅ **mDNS Support**: Access via `http://esp32-rf.local`
 - ✅ **MQTT Integration**: Full Home Assistant auto-discovery
 - ✅ **REST API**: JSON API for external control
-- ✅ **Persistent Config**: Settings saved across reboots
+- ✅ **Persistent Config**: Settings and RF codes saved across reboots
 
 ### Home Assistant Integration
-- ✅ **Auto-Discovery**: Devices appear automatically in HA
-- ✅ **Real-time Sync**: States update instantly
-- ✅ **Entity Naming**: Customizable friendly names
-- ✅ **Device Grouping**: All relays grouped under one device
+- ✅ **Auto-Discovery**: RF triggers appear automatically in HA
+- ✅ **Binary Sensors**: Each RF code creates a motion-type sensor
+- ✅ **Auto-Off**: Triggers reset after 2 seconds (configurable)
+- ✅ **Device Grouping**: All RF codes grouped under one device
 
 ### User Experience
 - ✅ **Mobile Responsive**: Works on phones, tablets, desktops
 - ✅ **Dark Theme**: Modern, easy-on-eyes interface
-- ✅ **Visual Feedback**: Animated relay states
-- ✅ **Status Indicators**: WiFi, MQTT, relay states
+- ✅ **Visual Feedback**: Real-time RF signal detection
+- ✅ **Status Indicators**: WiFi, MQTT, RF status
 - ✅ **Easy Reset**: Reconfigure via web interface
 
 ---
@@ -38,15 +38,15 @@ A complete ESP32-based smart relay controller with WiFi configuration portal and
 esp32_rellay/
 │
 ├── 📂 include/                    # Header files
-│   ├── config.h                   # Main configuration (GPIO, names, settings)
-│   └── relay_control.h            # Relay control class
+│   └── config.h                   # Main configuration (GPIO, names, settings)
 │
 ├── 📂 src/                        # Source code
-│   ├── main.cpp                   # Main program (WiFi, MQTT, Web Server)
-│   └── relay_control.cpp          # Relay control implementation
+│   └── main.cpp                   # Main program (WiFi, MQTT, RF, Web Server)
 │
 ├── 📂 data/                       # Web interface files (upload to LittleFS)
 │   ├── index.html                 # Main HTML page
+│   ├── rf_manager.html            # RF learning interface
+│   ├── admin.html                 # Admin configuration panel
 │   ├── style.css                  # Styling
 │   └── script.js                  # JavaScript logic
 │
@@ -60,6 +60,7 @@ esp32_rellay/
 │   ├── WIRING.md                 # Hardware wiring guide
 │   ├── QUICK_REFERENCE.md        # Quick reference card
 │   ├── PROJECT_SUMMARY.md        # This file
+│   ├── RF_RECEIVER_GUIDE.md      # Complete RF guide
 │   └── home_assistant_example.yaml # HA configuration examples
 ```
 
@@ -69,8 +70,8 @@ esp32_rellay/
 
 ### Hardware
 - **MCU**: ESP32 (any variant)
-- **Relay Module**: 4-channel (or any count)
-- **Power**: 5V USB or external supply
+- **RF Receiver**: SYN480R 433MHz module
+- **Power**: 5V USB
 - **Connectivity**: WiFi 2.4GHz
 
 ### Software Framework
@@ -81,11 +82,12 @@ esp32_rellay/
 ### Key Libraries
 | Library | Version | Purpose |
 |---------|---------|---------|
-| WiFiManager | 2.0.16-rc.2 | WiFi configuration portal |
+| WiFiManager | 2.0.17 | WiFi configuration portal |
 | PubSubClient | 2.8 | MQTT communication |
-| ArduinoJson | 6.21.3 | JSON parsing |
-| ESPAsyncWebServer | 1.2.3 | Async web server |
+| ArduinoJson | 6.21.5 | JSON parsing |
+| ESPAsyncWebServer | 1.2.4 | Async web server |
 | AsyncTCP | 1.1.1 | Async TCP connections |
+| RCSwitch | 2.6.4 | RF receiver support |
 
 ---
 
@@ -117,67 +119,66 @@ esp32_rellay/
 │ Start mDNS  │
 │ Start MQTT  │
 │ Start Web   │
+│ Start RF    │
 └──────┬──────┘
        │
        ▼
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Web UI     │     │    MQTT      │     │ Home         │
-│  Control    │────>│  Messages    │────>│ Assistant    │
-└─────────────┘     └──────────────┘     └──────────────┘
-       │                    │                     │
-       ▼                    ▼                     ▼
-┌──────────────────────────────────────────────────┐
-│            Relay Control Logic                   │
-│            (relay_control.cpp)                   │
-└───────────────────────┬──────────────────────────┘
-                        │
-                        ▼
-                ┌───────────────┐
-                │  GPIO Pins    │
-                │  (Relays)     │
-                └───────────────┘
+┌─────────────────────────────────────────────┐
+│                Main Loop                     │
+├─────────────────────────────────────────────┤
+│ ┌─────────┐  ┌─────────┐  ┌─────────────┐  │
+│ │ Check   │  │ Check   │  │ Handle      │  │
+│ │ WiFi    │  │ MQTT    │  │ Web Server  │  │
+│ └─────────┘  └─────────┘  └─────────────┘  │
+│                                             │
+│ ┌─────────────────────────────────────────┐ │
+│ │         Check RF Signal                 │ │
+│ │  (Interrupt-based via RCSwitch)         │ │
+│ └─────────────────────────────────────────┘ │
+└─────────────────────────────────────────────┘
+       │
+       ▼ (when RF signal detected)
+┌─────────────────────────────────────────────┐
+│           Publish to MQTT                    │
+│    Topic: homeassistant/switch/esp32-rf/    │
+│           rf_X/state → "ON"                  │
+│           (then "OFF" after 2 seconds)       │
+└─────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────┐
+│            Home Assistant                    │
+│    Binary sensor state changes              │
+│    Automation triggers fire                  │
+└─────────────────────────────────────────────┘
 ```
 
 ### Communication Protocols
 
 **Web Interface** → ESP32:
 - HTTP/REST API (JSON)
-- WebSocket-like polling (every 2s)
-
-**Home Assistant** → ESP32:
-- MQTT commands
-- Topics: `homeassistant/switch/esp32-relay/relayX/set`
+- Status polling (every 2s)
 
 **ESP32** → Home Assistant:
 - MQTT state updates
-- Topics: `homeassistant/switch/esp32-relay/relayX/state`
+- Topics: `homeassistant/switch/esp32-rf/rf_X/state`
 - MQTT discovery (on boot)
 
 ---
 
 ## 🎯 Use Cases
 
-### Home Automation
-- **Lighting Control**: Turn lights on/off via HA
-- **Fan Control**: Control ceiling fans, exhaust fans
-- **Appliance Control**: Coffee makers, heaters, etc.
-- **Access Control**: Garage doors, electric locks
-
-### Garden Automation
-- **Irrigation System**: Control water valves
-- **Greenhouse**: Fans, misters, lights
-- **Pond Management**: Pumps, aerators, filters
-
-### Office/Workshop
-- **Equipment Control**: Tools, machines
-- **Power Management**: Cut power to outlets
-- **Environmental**: HVAC, ventilation
-
 ### Smart Home Integration
-- **Scenes**: Create multi-relay scenes
-- **Automations**: Time-based, sensor-triggered
-- **Voice Control**: Alexa, Google Assistant (via HA)
-- **Remote Access**: Control from anywhere (via HA)
+- **Doorbell Alerts**: RF doorbell → HA notification
+- **Remote Controls**: RF remote → Scene activation
+- **Panic Buttons**: RF key fob → Emergency alerts
+- **Motion Sensors**: RF PIR → Lighting automation
+
+### Practical Applications
+- **Elderly Care**: RF pendant → Alert system
+- **Garage Monitor**: Learn opener signal → Track events
+- **Access Control**: RF key fob → Log entries
+- **Environmental**: RF sensors → HA monitoring
 
 ---
 
@@ -186,46 +187,35 @@ esp32_rellay/
 ### Current Implementation
 - ✅ WPA2 WiFi encryption
 - ✅ Local network only (no internet exposure)
-- ⚠️ No web authentication (suitable for local network)
-- ⚠️ MQTT credentials transmitted during setup
+- ⚠️ RF signals are NOT encrypted
+- ⚠️ Basic web authentication for admin
 
-### Recommended Improvements (Optional)
-```cpp
-// Add to platformio.ini for HTTPS:
-lib_deps = 
-    ESP32 Async Web Server
-    ESP32 HTTPSServer
-
-// Add basic auth to web server:
-server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    if(!request->authenticate("admin", "password"))
-        return request->requestAuthentication();
-    // serve page
-});
-```
+### Important Notes
+- RF 433MHz is inherently insecure
+- Don't use for critical security functions
+- Anyone with same frequency transmitter can trigger
+- Suitable for convenience, not security
 
 ---
 
 ## 📊 Performance Specs
 
 ### Resource Usage
-- **Flash**: ~800KB (code + libraries)
-- **SPIFFS/LittleFS**: ~100KB (web files)
-- **RAM**: ~80KB runtime
+- **Flash**: ~600KB (code + libraries)
+- **LittleFS**: ~50KB (web files)
+- **RAM**: ~60KB runtime
 - **WiFi**: 2.4GHz 802.11 b/g/n
-- **CPU**: Single core (WiFi), dual core capable
 
 ### Response Times
-- **Relay Toggle**: <50ms (local control)
+- **RF Detection**: <10ms (interrupt-based)
 - **Web UI Update**: 2s polling interval
-- **MQTT Command**: <100ms
-- **WiFi Reconnect**: 3-5s
-- **MQTT Reconnect**: 5s retry
+- **MQTT Publish**: <100ms
+- **WiFi Reconnect**: 5-20s
 
 ### Limitations
-- **Max Relays**: Limited by GPIO pins (~16 usable)
-- **Network**: 2.4GHz WiFi only (ESP32 limitation)
-- **Range**: Standard WiFi range
+- **Max RF Codes**: 10 (configurable)
+- **Network**: 2.4GHz WiFi only
+- **Range**: Depends on RF module/antenna
 - **Concurrent Users**: ~4-5 web clients
 
 ---
@@ -256,22 +246,25 @@ pio device monitor
 ```
 
 ### Configure
-1. Connect to `ESP32-Relay-Setup` WiFi
+1. Connect to `ESP32-RF-Setup` WiFi
 2. Enter credentials in portal
-3. Access at `http://esp32-relay.local`
+3. Access at `http://esp32-rf.local`
+4. Go to RF Manager to learn codes
 
 ---
 
 ## 🔧 Customization Guide
 
-### Change Relay Count
+### Change RF Pin
 ```cpp
 // include/config.h
-#define NUM_RELAYS 8
+#define RF_RECEIVER_PIN 22  // Change GPIO
+```
 
-const int RELAY_PINS[NUM_RELAYS] = {
-    23, 22, 21, 19, 18, 5, 4, 2
-};
+### Change Trigger Duration
+```cpp
+// include/config.h
+#define RF_TRIGGER_DURATION 5000  // 5 seconds
 ```
 
 ### Modify Web Theme
@@ -279,94 +272,33 @@ const int RELAY_PINS[NUM_RELAYS] = {
 /* data/style.css */
 :root {
     --primary-color: #FF5722;  /* Orange theme */
-    --secondary-color: #4CAF50;
 }
-```
-
-### Add Authentication
-```cpp
-// src/main.cpp in setupWebServer()
-server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    if(!request->authenticate("admin", "yourpassword"))
-        return request->requestAuthentication();
-    request->send(LittleFS, "/index.html");
-});
-```
-
-### Custom MQTT Topics
-```cpp
-// include/config.h
-#define MQTT_TOPIC_PREFIX "myhouse/relays/"
-#define MQTT_DISCOVERY_PREFIX "homeassistant"
 ```
 
 ---
 
 ## 📈 Future Enhancements
 
-### Planned Features
+### Potential Features
 - [ ] OTA (Over-The-Air) firmware updates
-- [ ] Web-based WiFi scanning
-- [ ] Relay scheduling (on-board timers)
-- [ ] Energy monitoring (with current sensors)
-- [ ] Relay interlock (prevent multiple ON)
+- [ ] RF transmitter support (send RF signals)
+- [ ] Code rolling/security code support
+- [ ] Multiple receiver support
 - [ ] Telegram bot integration
 - [ ] Local logging to SD card
-- [ ] Multi-language web interface
-
-### Advanced Ideas
-- [ ] ESPNow mesh networking
-- [ ] Modbus RTU support
-- [ ] Touch screen display
-- [ ] Battery backup support
-- [ ] Solar power integration
-- [ ] RF remote control
-- [ ] Temperature sensors per relay
-- [ ] Load detection
 
 ---
 
 ## 🐛 Known Issues
 
 ### Minor Issues
-1. **mDNS on Android**: Some Android devices don't support .local (use IP)
-2. **WiFi Reconnect**: May take 3-5 seconds after router restart
-3. **MQTT Buffer**: Large JSON discovery messages (consider splitting)
+1. **mDNS on Android**: Some devices don't support .local (use IP)
+2. **WiFi Reconnect**: May take 5-20 seconds after router restart
 
 ### Workarounds Included
 - ✅ IP fallback for mDNS
 - ✅ Auto-reconnect for WiFi & MQTT
 - ✅ Retained messages for state persistence
-
----
-
-## 📝 Configuration Reference
-
-### Default Values
-
-| Parameter | Default Value | Configurable Via |
-|-----------|---------------|------------------|
-| AP SSID | ESP32-Relay-Setup | config.h |
-| AP Password | 12345678 | config.h |
-| mDNS Hostname | esp32-relay | config.h |
-| Web Port | 80 | config.h |
-| MQTT Port | 1883 | Web portal |
-| Relay Count | 4 | config.h |
-| GPIO Pins | 23,22,21,19 | config.h |
-
-### Editable Files
-
-**Hardware Configuration**:
-- `include/config.h` - All hardware settings
-
-**Web Interface**:
-- `data/index.html` - Page structure
-- `data/style.css` - Appearance
-- `data/script.js` - Functionality
-
-**Firmware**:
-- `src/main.cpp` - Main logic
-- `src/relay_control.cpp` - Relay control
 
 ---
 
@@ -377,10 +309,9 @@ server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
 | **README.md** | Complete documentation | Overview & reference |
 | **SETUP_GUIDE.md** | Step-by-step setup | First-time setup |
 | **WIRING.md** | Hardware connections | Before wiring |
+| **RF_RECEIVER_GUIDE.md** | RF details | Understanding RF |
 | **TROUBLESHOOTING.md** | Problem solving | When issues occur |
 | **QUICK_REFERENCE.md** | Quick lookup | Daily use |
-| **PROJECT_SUMMARY.md** | This file | Understanding project |
-| **home_assistant_example.yaml** | HA config examples | HA integration |
 
 ---
 
@@ -393,7 +324,7 @@ By using this project, you'll learn:
 - mDNS/Bonjour
 - Async web servers
 - LittleFS filesystem
-- GPIO control
+- Interrupt-based RF reception
 
 ### IoT & Networking
 - MQTT protocol
@@ -404,30 +335,8 @@ By using this project, you'll learn:
 ### Home Automation
 - Home Assistant integration
 - MQTT discovery
-- Device entities
-- State management
-
-### Web Development
-- Responsive design
-- REST API consumption
-- Real-time updates
-- Dark theme UI
-
----
-
-## 🤝 Contributing
-
-This project is designed to be:
-- **Educational**: Learn IoT development
-- **Customizable**: Modify to your needs
-- **Extensible**: Add new features easily
-- **Well-Documented**: Comprehensive guides
-
-Feel free to:
-- Fork and modify
-- Add features
-- Improve documentation
-- Share your builds
+- Binary sensors
+- Automation triggers
 
 ---
 
@@ -444,6 +353,7 @@ This project is open source and free to use, modify, and distribute.
 - **PubSubClient** by knolleary
 - **ArduinoJson** by Benoit Blanchon
 - **ESPAsyncWebServer** by me-no-dev
+- **RCSwitch** by sui77
 
 ### Inspired By
 - Home Assistant community
@@ -452,40 +362,7 @@ This project is open source and free to use, modify, and distribute.
 
 ---
 
-## 📞 Support
-
-### Getting Help
-1. Read the **TROUBLESHOOTING.md** guide
-2. Check serial monitor output
-3. Review Home Assistant logs
-4. Verify hardware connections
-5. Search GitHub issues
-
-### Useful Resources
-- ESP32 Forums: https://esp32.com/
-- Home Assistant Community: https://community.home-assistant.io/
-- PlatformIO Docs: https://docs.platformio.org/
-
----
-
-## 🎉 Success Stories
-
-This project enables you to:
-- ✅ Control devices from anywhere (via Home Assistant)
-- ✅ Create complex automations
-- ✅ Integrate with voice assistants
-- ✅ Build a professional smart home
-- ✅ Learn IoT development
-- ✅ Save money vs commercial solutions
-
----
-
 **Happy Building! 🚀**
 
 *Last Updated: 2025*
-*Version: 1.0*
-
-
-
-
-
+*Version: 2.0.0*

@@ -1,37 +1,29 @@
-# ESP32 Relay Module Wiring Guide
+# ESP32 RF-to-MQTT Bridge Wiring Guide
 
-## Standard 4-Channel Relay Module
+## RF Receiver Module (SYN480R or Compatible)
 
 ### Pin Connections
 
 ```
-ESP32          →    Relay Module
-─────────────────────────────────
-GPIO 23        →    IN1 (Relay 1)
-GPIO 22        →    IN2 (Relay 2)
-GPIO 21        →    IN3 (Relay 3)
-GPIO 19        →    IN4 (Relay 4)
-GND            →    GND
-3.3V or 5V*    →    VCC
-
-* Check your relay module voltage requirement
+SYN480R Receiver → ESP32
+─────────────────────────
+VCC              → 3.3V or 5V
+GND              → GND  
+DATA             → GPIO 22
 ```
 
 ### Visual Diagram
 
 ```
 ┌─────────────────┐                 ┌──────────────────────┐
-│     ESP32       │                 │   4-Channel Relay    │
+│     ESP32       │                 │   SYN480R Receiver   │
 │                 │                 │                      │
-│            GPIO23├────────────────┤IN1                   │
-│            GPIO22├────────────────┤IN2                   │
-│            GPIO21├────────────────┤IN3                   │
-│            GPIO19├────────────────┤IN4                   │
+│            GPIO22├────────────────┤DATA                  │
 │                 │                 │                      │
 │              GND├────────────────┤GND                   │
 │         3.3V/5V*├────────────────┤VCC                   │
 │                 │                 │                      │
-│     [USB Port]  │                 │ [COM/NO/NC x 4]      │
+│     [USB Port]  │                 │  [Antenna]           │
 └─────────────────┘                 └──────────────────────┘
 ```
 
@@ -39,279 +31,188 @@ GND            →    GND
 
 ### ⚠️ Voltage Considerations
 
-1. **Signal Voltage**: ESP32 outputs 3.3V logic
-   - Most relay modules work with 3.3V signal
-   - Some require 5V signal (use level shifter)
+1. **Signal Voltage**: ESP32 GPIO is 3.3V tolerant
+   - Most SYN480R modules work with both 3.3V and 5V VCC
+   - Data output is typically 3.3V compatible
 
 2. **Module Power (VCC)**:
-   - **Option A**: Power from ESP32 (3.3V or 5V pin)
-     - ✅ Good for small relays
-     - ❌ Limited current (~500mA)
-   
-   - **Option B**: Separate 5V power supply
-     - ✅ Better for larger relay boards
-     - ✅ More stable
-     - Connect: GND to GND (common ground)
+   - **3.3V**: Lower power consumption, shorter range
+   - **5V**: Better sensitivity, longer range (recommended)
 
-### 🔌 JD-VCC Jumper (if present)
+### 📡 Antenna Considerations
 
-Some relay modules have a JD-VCC jumper:
+For best RF reception:
 
-```
-With Jumper (default):
-VCC = JD-VCC = Relay coil power
-Power everything from one source
+1. **Wire Antenna**: 
+   - 433MHz wavelength ≈ 69cm
+   - Quarter-wave antenna ≈ **17.3cm** of wire
+   - Solder to ANT pad on receiver
 
-Without Jumper (isolated):
-VCC = Logic power (3.3V/5V from ESP32)
-JD-VCC = Relay coil power (separate 5V supply)
-```
+2. **Coil Antenna**:
+   - Some modules come with coil antennas
+   - Works but shorter range than wire
 
-**Recommended**: Remove jumper and use separate 5V for JD-VCC
+3. **External Antenna**:
+   - Use SMA connector if module supports it
+   - Best for long range applications
 
-### ⚡ Active High vs Active Low
+### 🔌 Recommended GPIO Pins
 
-**Active High Module** (default code):
-- HIGH signal = Relay ON
-- LOW signal = Relay OFF
+The default is GPIO 22, but you can use other pins:
 
-**Active Low Module**:
-- LOW signal = Relay ON  
-- HIGH signal = Relay OFF
-- **Fix**: Invert logic in code (see TROUBLESHOOTING.md)
-
-## Alternative GPIO Pins
-
-You can use different GPIO pins. Good options:
-
-### ✅ Recommended GPIO Pins:
-- GPIO 23, 22, 21, 19 (default)
-- GPIO 18, 17, 16, 15
+#### ✅ Recommended GPIO Pins:
+- GPIO 22 (default)
+- GPIO 23, 21, 19, 18
+- GPIO 17, 16, 15
 - GPIO 13, 12, 14, 27
 - GPIO 26, 25, 33, 32
 
-### ❌ Avoid These GPIO Pins:
+#### ❌ Avoid These GPIO Pins:
 - **GPIO 0**: Boot mode (used for programming)
 - **GPIO 2**: Boot mode, onboard LED
 - **GPIO 5**: Boot mode
 - **GPIO 12**: Boot voltage selector
-- **GPIO 15**: Boot mode
-- **GPIO 34-39**: Input only (no output capability)
+- **GPIO 34-39**: Input only (but work for RF receiver)
 
-## Relay Output Connections
+## Changing the RF Pin
 
-Each relay has 3 terminals:
+If you need to use a different GPIO pin:
 
-```
-COM (Common)  : Connect your power source or device
-NO (Normally Open) : Closed when relay is ON
-NC (Normally Closed) : Open when relay is ON
-```
+1. Edit `include/config.h`:
+   ```cpp
+   #define RF_RECEIVER_PIN 22  // Change to your desired GPIO
+   ```
 
-### Example: Controlling a Light
-
-```
-┌─────────┐
-│ AC Power│
-│ Source  │
-└────┬────┘
-     │
-     │    ┌──────────┐
-     └────┤COM    NO ├─────→ To Light
-          │          │
-          │ Relay  NC├─────→ Not used
-          └──────────┘
-```
-
-### Example: Controlling DC Device (12V LED strip)
-
-```
-12V Supply (+)───┬────→ LED Strip (+)
-                 │
-                COM
-                 │
-                NO──── (switched to COM when relay ON)
-                
-GND ─────────────┴────→ LED Strip (-)
-```
-
-## Safety Warnings
-
-### ⚠️ DANGER - High Voltage
-- **AC mains voltage can kill**
-- Only work with AC if you're qualified
-- Use proper insulation
-- Test with low voltage first
-
-### 🔥 Current Ratings
-- Check relay specifications
-- Don't exceed rated current
-- Use heat sinks for high current
-- Add fuses for protection
-
-### ⚡ Inductive Loads
-For motors, solenoids, transformers:
-- Add flyback diodes (DC loads)
-- Add snubbers (AC loads)
-- Prevents back-EMF damage
-
-## Example Projects
-
-### 1. Simple LED Control (Safe for Testing)
-
-```
-Components:
-- ESP32
-- 4-channel relay module
-- 4 LEDs
-- 4 resistors (220Ω)
-- 5V power supply
-- Breadboard
-
-Wiring:
-5V → COM (relay 1) → NO → LED → Resistor → GND
-(Repeat for other relays)
-```
-
-### 2. Home Automation (Lights)
-
-```
-⚠️ AC VOLTAGE - Hire electrician if not qualified
-
-Line (Hot) → Relay COM
-Relay NO → Light fixture
-Neutral → Light fixture
-Ground → Light fixture ground
-```
-
-### 3. Garden Irrigation
-
-```
-12V DC Supply → Relay COM
-Relay NO → Solenoid valve (+)
-Solenoid valve (-) → GND
-Add: Flyback diode across solenoid
-```
-
-### 4. Fan Control
-
-```
-⚠️ AC VOLTAGE
-
-Line → Relay COM
-Relay NO → Fan hot wire
-Neutral → Fan neutral
-Ground → Fan ground
-```
+2. Re-upload firmware:
+   ```bash
+   pio run --target upload
+   ```
 
 ## Power Supply Recommendations
-
-### For Relay Module:
-- **Voltage**: 5V DC
-- **Current**: 500mA minimum (100mA per relay)
-- **Recommended**: 1A for safety margin
 
 ### For ESP32:
 - **Voltage**: 5V via USB or VIN pin
 - **Current**: 500mA minimum
 - **During WiFi**: Peaks to 500mA
 
+### For RF Receiver:
+- **Voltage**: 5V recommended for best sensitivity
+- **Current**: ~10-20mA typical
+
 ### Total System:
-- **Option 1**: USB power (5V 2A) for ESP32 + small relays
-- **Option 2**: Dedicated 5V 3A supply for everything
-- **Option 3**: Separate supplies (ESP32 on USB, relays on 5V PSU)
+- **USB Power**: 5V 1A is sufficient
+- **External PSU**: 5V 1A or higher
 
 ## Testing Procedure
 
-### 1. Initial Setup (No Load)
+### 1. Initial Setup (No Transmitter)
 ```
-1. Wire ESP32 to relay module
+1. Wire RF receiver to ESP32
 2. Power ESP32 via USB
-3. Upload code
-4. Check serial monitor
-5. Verify relays click when controlled
+3. Upload firmware
+4. Check serial monitor for:
+   "[RF] Receiver initialized on GPIO 22"
 ```
 
-### 2. Low Voltage Test (12V DC)
+### 2. RF Signal Test
 ```
-1. Connect 12V LED or bulb to relay output
-2. Test via web interface
-3. Verify switching works correctly
-4. Check for any heat issues
+1. Open web interface RF Manager
+2. Click "Start Learning Mode"
+3. Press button on RF transmitter
+4. Serial monitor should show:
+   "[RF] Code learned: XXXXXX (bit: XX, protocol: X)"
 ```
 
-### 3. AC Test (Only if qualified!)
+### 3. Verify in Home Assistant
 ```
-1. Double-check all connections
-2. Use proper enclosure
-3. Test with meter (relay off)
-4. Test switching with low-power load first
-5. Monitor for issues
+1. Check MQTT connection status
+2. Verify binary sensor appears
+3. Press RF transmitter
+4. Sensor should briefly turn ON then OFF
 ```
 
 ## Troubleshooting
 
-### Relay doesn't click
-- Check VCC power (measure voltage)
-- Verify GPIO pin is correct
-- Check if signal reaches relay (LED indicator)
-- Test with jumper wire: IN to GND (should activate)
+### RF receiver not detecting signals
 
-### Relay clicks but output doesn't work
-- Check COM/NO/NC connections
-- Verify load polarity (DC)
-- Test with multimeter
-- Check fuses if present
+**Check wiring:**
+- Verify VCC has power (LED on module if present)
+- Verify GND is connected
+- Verify DATA is connected to correct GPIO
 
-### Multiple relays trigger together
-- Check for wiring shorts
-- Verify GPIO pins in code match hardware
-- Check common ground connection
+**Check GPIO pin:**
+- Ensure the GPIO pin is correctly defined in config.h
+- Avoid pins used during boot
 
-### Relay stays on after ESP32 reboot
-- GPIO floats during boot
-- Add pull-down resistors (10kΩ to GND)
-- Or use "active high" module with pull-downs
+**Check transmitter:**
+- Verify transmitter has battery
+- Try pressing different buttons
+- Move transmitter closer
 
-## Schematic Example
+### Weak RF range
+
+**Improve antenna:**
+- Add 17.3cm wire antenna
+- Keep antenna away from metal
+- Position receiver away from ESP32
+
+**Power supply:**
+- Use 5V instead of 3.3V for receiver
+- Ensure stable power supply
+
+**Interference:**
+- Move away from WiFi router
+- Separate from other electronics
+- Try different location
+
+### False triggers
+
+**Causes:**
+- Other 433MHz devices nearby
+- Electrical noise
+- Poor antenna connection
+
+**Solutions:**
+- Learn a different button/transmitter
+- Add shielding around receiver
+- Use transmitters with longer codes
+
+## Schematic
 
 ```
-Complete 4-Relay System with Isolated Power:
+Complete RF Bridge System:
 
    ┌─────────────┐
-   │  5V Supply  │
-   │   (ESP32)   │
+   │  5V USB     │
+   │  Power      │
    └──────┬──────┘
           │
    ┌──────▼──────────────┐
    │      ESP32          │
    │                     │
-   │ 23 22 21 19     GND │
-   └──┬──┬──┬──┬────────┬┘
-      │  │  │  │        │
-      │  │  │  │        │    ┌──────────────┐
-      │  │  │  │        │    │ 5V Supply    │
-      │  │  │  │        │    │ (Relays)     │
-      │  │  │  │        │    └───┬──────┬───┘
-      │  │  │  │        │        │      │
-   ┌──▼──▼──▼──▼────────▼────────▼──────▼──┐
-   │ IN1 IN2 IN3 IN4   GND    JD-VCC   VCC │
-   │                                        │
-   │        4-Channel Relay Module          │
-   │                                        │
-   │ [Relay 1] [Relay 2] [Relay 3] [Relay 4]│
-   └─────────────────────────────────────────┘
+   │   22           GND  │
+   └──┬──────────────┬───┘
+      │              │
+      │              │     ┌────────────┐
+      │              │     │ 5V Supply  │
+      │              │     │ (optional) │
+      │              │     └────┬───────┘
+      │              │          │
+   ┌──▼──────────────▼──────────▼─┐
+   │ DATA          GND         VCC │
+   │                                │
+   │      SYN480R RF Receiver       │
+   │                                │
+   │           [ANT]                │
+   │             │                  │
+   │         17.3cm wire            │
+   └────────────────────────────────┘
 ```
 
 ## Additional Resources
 
 - ESP32 Pinout: https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
-- Relay Module Guide: Check manufacturer datasheet
-- Electrical Safety: Consult local electrical codes
+- RCSwitch Library: https://github.com/sui77/rc-switch
+- 433MHz Antenna Calculator: https://www.changpuak.ch/electronics/calc_12.php
 
-**Remember**: When in doubt, start with low voltage testing!
-
-
-
-
-
+**Remember**: For best results, use a proper wire antenna and power the receiver with 5V!

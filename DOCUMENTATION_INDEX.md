@@ -1,6 +1,6 @@
 # Documentation Index
 
-**ESP32 Relay Controller - Complete Documentation Guide**
+**ESP32 RF-to-MQTT Bridge - Complete Documentation Guide**
 
 This index helps you quickly find the documentation you need.
 
@@ -12,7 +12,7 @@ This index helps you quickly find the documentation you need.
 
 1. Read `README.md` - Overview and basic setup
 2. Follow `SETUP_GUIDE.md` or `GET_STARTED.md` - Step-by-step installation
-3. Check `WIRING.md` - Connect your hardware safely
+3. Check `WIRING.md` - Connect your RF receiver
 4. Reference `QUICK_REFERENCE.md` - Common commands
 
 ---
@@ -27,13 +27,12 @@ This index helps you quickly find the documentation you need.
 | **GET_STARTED.md** | Beginner-friendly setup guide | New users |
 | **SETUP_GUIDE.md** | Detailed installation steps | Complete setup |
 | **QUICK_REFERENCE.md** | Command cheat sheet | Quick lookups |
-| **FILE_STRUCTURE.txt** | Project organization | Understanding codebase |
 
 ### Hardware & Wiring
 
 | Document | Description | When to Read |
 |----------|-------------|--------------|
-| **WIRING.md** | Wiring diagrams & safety | Before connecting hardware |
+| **WIRING.md** | RF receiver wiring & antenna | Before connecting hardware |
 
 ### Features & Implementation
 
@@ -42,7 +41,6 @@ This index helps you quickly find the documentation you need.
 | **RF_RECEIVER_GUIDE.md** | Complete RF receiver setup | Using RF feature |
 | **RF_IMPLEMENTATION_SUMMARY.md** | RF quick reference | RF troubleshooting |
 | **WIFI_RECONNECTION.md** | WiFi reconnection logic | Understanding WiFi behavior |
-| **EVENT_DRIVEN_WIFI.md** | Event-driven WiFi details | Advanced WiFi info |
 | **home_assistant_example.yaml** | Home Assistant config | HA integration |
 
 ### Troubleshooting & Fixes
@@ -51,11 +49,7 @@ This index helps you quickly find the documentation you need.
 |----------|-------------|--------------|
 | **CHANGELOG.md** ⭐ | **Every issue & fix** | **When you have ANY problem** |
 | **TROUBLESHOOTING.md** | General troubleshooting | Common issues |
-| **PERFORMANCE_FIX_SUMMARY.md** | Why system was slow | Understanding speed fixes |
-| **MQTT_OPTIMIZATION.md** | MQTT performance details | MQTT issues |
 | **MDNS_FIX.md** | .local URL not working | mDNS troubleshooting |
-| **PC_MDNS_TROUBLESHOOTING.md** | PC-side mDNS setup | .local doesn't work on PC |
-| **PERFORMANCE_IMPROVEMENTS.md** | Technical performance | Advanced optimization |
 
 ### Project Information
 
@@ -63,6 +57,7 @@ This index helps you quickly find the documentation you need.
 |----------|-------------|--------------|
 | **PROJECT_SUMMARY.md** | High-level overview | Quick project understanding |
 | **DOCUMENTATION_INDEX.md** | This file | Finding documentation |
+| **userguide.md** | User guide | Daily operation |
 
 ---
 
@@ -81,29 +76,30 @@ pio run --target uploadfs
 ---
 
 ### Issue: .local URL Not Working
-**Symptom**: Can't access `http://esp32-relay.local`
+**Symptom**: Can't access `http://esp32-rf.local`
 
-➡️ Read: 
-1. **MDNS_FIX.md** - ESP32-side fixes
-2. **PC_MDNS_TROUBLESHOOTING.md** - PC-side fixes
+➡️ Read: **MDNS_FIX.md**
 
-**Quick Test**: Does it work on your phone? If yes, it's a PC issue.
+**Quick Test**: Does it work on your phone? If yes, it's a PC issue (needs Bonjour).
 
 ---
 
-### Issue: Slow Relay Response
-**Symptom**: Takes 2-5 seconds to toggle relay
+### Issue: RF Code Not Capturing
+**Symptom**: Learning mode times out
 
-➡️ Read: **PERFORMANCE_FIX_SUMMARY.md**
+➡️ Read: **RF_RECEIVER_GUIDE.md** → Troubleshooting
 
-**Fixed In**: Version 1.4 (current version)
+**Quick Fixes**:
+- Check wiring (DATA to GPIO 22)
+- Use 5V power for receiver
+- Move transmitter closer
 
 ---
 
 ### Issue: MQTT Not Connecting
 **Symptom**: `rc=-2` errors in serial monitor
 
-➡️ Read: **CHANGELOG.md** → "MQTT Not Connecting to Home Assistant"
+➡️ Read: **TROUBLESHOOTING.md** → MQTT Issues
 
 **Check**: 
 - MQTT broker IP and credentials
@@ -111,12 +107,15 @@ pio run --target uploadfs
 
 ---
 
-### Issue: Only 13 Relays Showing
-**Symptom**: Web interface shows 13 of 16 relays
+### Issue: RF Trigger Not in Home Assistant
+**Symptom**: No binary sensor appears
 
-➡️ Read: **CHANGELOG.md** → "Webpage Showing Only 13 of 16 Relays"
+➡️ Read: **RF_RECEIVER_GUIDE.md** → Home Assistant Integration
 
-**Fixed In**: Version 1.1+
+**Fixes**:
+- Learn at least one RF code first
+- Check MQTT connection
+- Restart Home Assistant
 
 ---
 
@@ -124,21 +123,17 @@ pio run --target uploadfs
 
 ### Want to Understand How It Works?
 
-**Event-Driven WiFi**:
-- `EVENT_DRIVEN_WIFI.md` - Non-blocking WiFi implementation
+**RF Reception**:
+- `RF_RECEIVER_GUIDE.md` - Complete RF walkthrough
+- `RF_IMPLEMENTATION_SUMMARY.md` - Technical details
+
+**WiFi & Network**:
 - `WIFI_RECONNECTION.md` - Reconnection strategy
+- `MDNS_FIX.md` - mDNS implementation
 
-**MQTT Performance**:
-- `MQTT_OPTIMIZATION.md` - Why we publish once per boot
-- `PERFORMANCE_FIX_SUMMARY.md` - 48x speedup explanation
-
-**mDNS Troubleshooting**:
-- `MDNS_FIX.md` - Race condition fix
-- `PC_MDNS_TROUBLESHOOTING.md` - Client setup
-
-**RF Receiver**:
-- `RF_RECEIVER_GUIDE.md` - Complete walkthrough
-- `RF_IMPLEMENTATION_SUMMARY.md` - Quick reference
+**Home Assistant**:
+- `home_assistant_example.yaml` - Configuration examples
+- `README.md` - MQTT topics and discovery
 
 ---
 
@@ -149,25 +144,19 @@ pio run --target uploadfs
 ```
 esp32_rellay/
 ├── src/
-│   ├── main.cpp              - Main firmware logic
-│   └── relay_control.cpp     - Relay control class
+│   └── main.cpp              - Main firmware logic
 ├── include/
-│   ├── config.h              - Hardware configuration
-│   └── relay_control.h       - Relay class header
+│   └── config.h              - Hardware configuration
 ├── data/
-│   ├── index.html            - Main control page
+│   ├── index.html            - Main page
+│   ├── rf_manager.html       - RF learning page
 │   ├── admin.html            - Admin panel
-│   ├── rf_learn.html         - RF learning page
 │   ├── style.css             - Global styles
 │   └── script.js             - Client-side JS
 └── platformio.ini            - Build configuration
 ```
 
-**See**: `FILE_STRUCTURE.txt` for complete layout
-
 ### Common Commands
-
-**See**: `QUICK_REFERENCE.md` for full command list
 
 ```bash
 # Upload web files
@@ -187,14 +176,12 @@ pio run --target clean
 
 ## 📊 Document Statistics
 
-**Total Documentation Files**: 18
-- Setup & Getting Started: 5
+**Total Documentation Files**: 12
+- Setup & Getting Started: 4
 - Hardware: 1
-- Features: 4
-- Troubleshooting: 7
-- Project Info: 2
-
-**Total Lines of Documentation**: ~10,000+ lines
+- Features: 3
+- Troubleshooting: 3
+- Project Info: 3
 
 **Most Important Document**: **CHANGELOG.md** (contains every issue and fix)
 
@@ -206,7 +193,8 @@ pio run --target clean
 1. README.md
 2. GET_STARTED.md or SETUP_GUIDE.md
 3. WIRING.md
-4. QUICK_REFERENCE.md
+4. RF_RECEIVER_GUIDE.md
+5. QUICK_REFERENCE.md
 
 ### For Troubleshooting
 1. **CHANGELOG.md** (find your exact issue)
@@ -215,13 +203,8 @@ pio run --target clean
 
 ### For Understanding the System
 1. PROJECT_SUMMARY.md (overview)
-2. PERFORMANCE_FIX_SUMMARY.md (why it's fast)
-3. EVENT_DRIVEN_WIFI.md (WiFi implementation)
-4. MQTT_OPTIMIZATION.md (MQTT strategy)
-
-### For RF Feature
-1. RF_RECEIVER_GUIDE.md (complete guide)
-2. RF_IMPLEMENTATION_SUMMARY.md (quick reference)
+2. RF_RECEIVER_GUIDE.md (RF details)
+3. WIFI_RECONNECTION.md (WiFi implementation)
 
 ---
 
@@ -233,42 +216,17 @@ pio run --target clean
 **Want quick commands?**
 - Go to **QUICK_REFERENCE.md** - one-page command list
 
-**Need to understand why something works a certain way?**
-- Check the technical docs: MQTT_OPTIMIZATION.md, EVENT_DRIVEN_WIFI.md, etc.
+**RF not working?**
+- Check wiring first (WIRING.md)
+- Then RF_RECEIVER_GUIDE.md troubleshooting
 
 **Webpage not working?**
 - 99% chance you forgot: `pio run --target uploadfs`
 - See CHANGELOG.md → "Web Interface Not Loading"
 
 **.local URL not working?**
-- Works on phone? → PC needs Bonjour/Avahi (PC_MDNS_TROUBLESHOOTING.md)
-- Doesn't work anywhere? → ESP32 issue (MDNS_FIX.md)
-
----
-
-## 🔍 Search Tips
-
-**Using grep to find information:**
-```bash
-# Find all mentions of a specific issue
-grep -r "webpage not loading" *.md
-
-# Find all references to a command
-grep -r "uploadfs" *.md
-
-# Find error messages
-grep -r "littlefs" *.md
-```
-
----
-
-## 📝 Document Maintenance
-
-**Last Updated**: October 2025  
-**Current Version**: 1.4  
-**Documentation Status**: ✅ Complete and up-to-date
-
-**All issues encountered are documented in**: **CHANGELOG.md**
+- Works on phone? → PC needs Bonjour/Avahi
+- Doesn't work anywhere? → Check MDNS_FIX.md
 
 ---
 
@@ -278,9 +236,9 @@ If you could only read 5 documents, read these:
 
 1. ⭐⭐⭐ **CHANGELOG.md** - Every problem and solution
 2. ⭐⭐⭐ **README.md** - Essential overview
-3. ⭐⭐ **QUICK_REFERENCE.md** - Common commands
-4. ⭐⭐ **TROUBLESHOOTING.md** - General solutions
-5. ⭐ **PERFORMANCE_FIX_SUMMARY.md** - Why it's optimized
+3. ⭐⭐ **RF_RECEIVER_GUIDE.md** - RF setup details
+4. ⭐⭐ **QUICK_REFERENCE.md** - Common commands
+5. ⭐ **TROUBLESHOOTING.md** - General solutions
 
 ---
 
@@ -296,4 +254,3 @@ If you could only read 5 documents, read these:
 ---
 
 **Happy Building! 🚀**
-

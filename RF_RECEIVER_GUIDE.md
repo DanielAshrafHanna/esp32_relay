@@ -2,80 +2,82 @@
 
 ## Overview
 
-Your ESP32 Relay Controller now includes **RF (433MHz) receiver functionality** that allows you to capture signals from RF transmitters and create a virtual trigger in Home Assistant. When the learned signal is detected, a binary sensor turns ON for 2 seconds then automatically turns OFF.
+The ESP32 RF-to-MQTT Bridge captures signals from 433MHz RF transmitters and creates virtual triggers in Home Assistant. When a learned signal is detected, a binary sensor turns ON for 2 seconds then automatically turns OFF.
 
 ## Hardware Requirements
 
 - **SYN480R RF Receiver Module** (or compatible 433MHz receiver)
-- Connected to **GPIO 15** on your ESP32
-- **433MHz RF Transmitter** (remote control, key fob, etc.)
+- Connected to **GPIO 22** on your ESP32 (configurable)
+- **433MHz RF Transmitter** (remote control, key fob, doorbell, etc.)
+- **17.3cm wire antenna** (recommended for better range)
 
 ## Wiring
 
 ```
 SYN480R Receiver → ESP32
 ─────────────────────────
-VCC              → 5V or 3.3V
+VCC              → 5V (recommended) or 3.3V
 GND              → GND  
-DATA             → GPIO 15
+DATA             → GPIO 22
 ```
 
-**Note:** GPIO 15 is defined in `include/config.h` and can be changed if needed.
+**Note:** GPIO 22 is defined in `include/config.h` and can be changed if needed.
+
+**Tip:** Use 5V power for the receiver for better sensitivity and range.
 
 ## How It Works
 
 1. **Learning Mode:** Activate learning mode via web interface
-2. **Capture Signal:** Press button on your RF transmitter
-3. **Save Code:** The RF code is captured and saved to NVS (non-volatile storage)
-4. **Detection:** When the same signal is received again, triggers Home Assistant entity
-5. **Auto-Off:** The trigger automatically turns OFF after 2 seconds
+2. **Enter Name:** Give your RF device a meaningful name
+3. **Capture Signal:** Press button on your RF transmitter
+4. **Save Code:** The RF code is captured and saved to NVS (non-volatile storage)
+5. **Detection:** When the same signal is received again, triggers Home Assistant entity
+6. **Auto-Off:** The trigger automatically turns OFF after 2 seconds
 
 ## Setup Instructions
 
 ### 1. Hardware Connection
 
-Connect your SYN480R receiver to GPIO 15 as shown in the wiring diagram above.
+Connect your SYN480R receiver to GPIO 22 as shown in the wiring diagram above. For best range, add a 17.3cm wire antenna to the ANT pad.
 
-### 2. Access RF Learning Page
+### 2. Access RF Manager Page
 
-Navigate to the RF Learning interface:
-- **Main Dashboard** → Click **"📡 RF Learning"** button
-- Or directly: `http://esp32-relay.local/rf_learn.html`
+Navigate to the RF Manager interface:
+- **Main Dashboard** → Click **"RF Manager"** button
+- Or directly: `http://esp32-rf.local/rf_manager.html`
 
 ### 3. Learn Your RF Signal
 
-1. Click **"🎓 Start Learning Mode"**
-2. Within 30 seconds, press any button on your RF transmitter
-3. The system will capture the signal automatically
-4. You'll see a success message with the captured code details
+1. Enter a **name** for your device (e.g., "Doorbell", "Remote Button 1")
+2. Click **"Start Learning Mode"**
+3. Within 30 seconds, press any button on your RF transmitter
+4. The system will capture the signal automatically
+5. You'll see a success message with the captured code details
 
 ### 4. Verify in Home Assistant
 
 After learning a code, a new entity will appear in Home Assistant:
-- **Entity Name:** `binary_sensor.rf_trigger`
+- **Entity Type:** `binary_sensor`
+- **Entity Name:** `binary_sensor.rf_<your_name>`
 - **Device Class:** Motion
-- **Icon:** 📡 Remote
+- **Icon:** mdi:remote
 - **Auto-Off Delay:** 2 seconds
 
 ## Web Interface
 
-### RF Learning Page
+### RF Manager Page
 
-Access at: `http://esp32-relay.local/rf_learn.html`
+Access at: `http://esp32-rf.local/rf_manager.html`
 
 **Features:**
-- **Learning Status:** Shows current state (Ready, Learning, Configured)
-- **Learned RF Code:** Displays captured code details
+- **Learn New Code:** Enter name and start learning mode
+- **Learned Codes List:** View all captured codes with details
+  - Code name
   - RF Code (decimal value)
   - Bit Length
   - Protocol Number
-- **Start Learning Mode:** Activates 30-second learning window
-- **Clear Learned Code:** Removes saved RF code
-
-### Main Dashboard
-
-The main interface (`index.html`) now includes:
-- **RF Learning Button:** Quick access to RF configuration
+- **Delete Codes:** Remove individual codes
+- **Status Indicator:** Shows learning/ready state
 
 ## API Endpoints
 
@@ -88,57 +90,69 @@ GET /api/rf/status
 ```json
 {
   "learning_mode": false,
-  "code_learned": true,
-  "rf_code": "5592332",
-  "bit_length": 24,
-  "protocol": 1,
-  "trigger_active": false
+  "code_count": 3,
+  "max_codes": 10
+}
+```
+
+### Get All Learned Codes
+```bash
+GET /api/rf/codes
+```
+
+**Response:**
+```json
+{
+  "codes": [
+    {"slot": 0, "name": "Doorbell", "code": 5592332, "bits": 24, "protocol": 1, "active": true},
+    {"slot": 1, "name": "Remote 1", "code": 1234567, "bits": 24, "protocol": 1, "active": true}
+  ],
+  "count": 2,
+  "max": 10
 }
 ```
 
 ### Start Learning Mode
 ```bash
-POST /api/rf/learn
+POST /api/rf/learn?name=Doorbell
 ```
 
 **Response:**
 ```json
 {
   "success": true,
-  "message": "Learning mode activated"
+  "message": "Learning mode activated for 'Doorbell'"
 }
 ```
-
-**Note:** Learning mode auto-deactivates after 30 seconds or when a code is captured.
 
 ### Stop Learning Mode
 ```bash
 POST /api/rf/stop
 ```
 
-### Clear Learned Code
+### Delete Learned Code
 ```bash
-POST /api/rf/clear
+POST /api/rf/delete?slot=0
 ```
 
 ## Home Assistant Integration
 
 ### MQTT Discovery
 
-The RF trigger is automatically discovered by Home Assistant via MQTT:
+RF triggers are automatically discovered by Home Assistant via MQTT:
 
 **Topic Structure:**
-- **Config Topic:** `homeassistant/binary_sensor/esp32-relay_rf_trigger/config`
-- **State Topic:** `homeassistant/switch/esp32-relay/rf_trigger/state`
-- **Availability Topic:** `homeassistant/switch/esp32-relay/availability`
+- **Config Topic:** `homeassistant/binary_sensor/esp32-rf_rf_<name>/config`
+- **State Topic:** `homeassistant/switch/esp32-rf/rf_<slot>/state`
+- **Availability Topic:** `homeassistant/switch/esp32-rf/availability`
 
 ### Entity Details
 
 ```yaml
 platform: mqtt
-name: "RF Trigger"
-unique_id: "esp32-relay_rf_trigger"
-state_topic: "homeassistant/switch/esp32-relay/rf_trigger/state"
+name: "RF Doorbell"
+unique_id: "esp32-rf_rf_doorbell"
+state_topic: "homeassistant/switch/esp32-rf/rf_0/state"
 device_class: motion
 icon: "mdi:remote"
 off_delay: 2  # Auto-off after 2 seconds
@@ -146,18 +160,22 @@ off_delay: 2  # Auto-off after 2 seconds
 
 ### Using in Automations
 
-**Example 1: Turn on Light when RF Button Pressed**
+**Example 1: Doorbell Notification**
 ```yaml
 automation:
-  - alias: "RF Button Triggers Light"
+  - alias: "RF Doorbell Alert"
     trigger:
       - platform: state
-        entity_id: binary_sensor.rf_trigger
+        entity_id: binary_sensor.rf_doorbell
         to: "on"
     action:
+      - service: notify.mobile_app
+        data:
+          title: "🔔 Doorbell"
+          message: "Someone is at the door!"
       - service: light.turn_on
         target:
-          entity_id: light.living_room
+          entity_id: light.porch
 ```
 
 **Example 2: Toggle Device**
@@ -166,7 +184,7 @@ automation:
   - alias: "RF Button Toggles Fan"
     trigger:
       - platform: state
-        entity_id: binary_sensor.rf_trigger
+        entity_id: binary_sensor.rf_remote_1
         to: "on"
     action:
       - service: switch.toggle
@@ -174,13 +192,13 @@ automation:
           entity_id: switch.bedroom_fan
 ```
 
-**Example 3: Trigger Multiple Actions**
+**Example 3: Trigger Scene**
 ```yaml
 automation:
   - alias: "RF Button Scene"
     trigger:
       - platform: state
-        entity_id: binary_sensor.rf_trigger
+        entity_id: binary_sensor.rf_remote_2
         to: "on"
     action:
       - service: scene.turn_on
@@ -192,24 +210,24 @@ automation:
 
 ### During Learning
 ```
-[RF] Learning mode activated - press transmitter button
-[RF] Code learned: 5592332 (bit: 24, protocol: 1)
-[RF] Code saved to preferences
-[MQTT] RF Trigger discovery published
+[RF] Learning mode activated for 'Doorbell' - press transmitter button
+[RF] Code learned: 'Doorbell' - 5592332 (bit: 24, protocol: 1)
+[RF] Code saved to slot 0
+[MQTT] RF discovery published for slot 0
 ```
 
 ### During Signal Detection
 ```
-[RF] Learned signal detected!
-[RF] Published trigger state: ON
-[RF] Trigger auto-off
-[RF] Published trigger state: OFF
+[RF] Signal received: 5592332
+[RF] Match found: 'Doorbell' (slot 0)
+[MQTT] RF 'Doorbell' (slot 0): ON
+[MQTT] RF 'Doorbell' (slot 0): OFF
 ```
 
 ### On Boot
 ```
-[RF] Receiver initialized on GPIO 15
-[RF] Learned code loaded: 5592332 (bit: 24, protocol: 1)
+[RF] Receiver initialized on GPIO 22
+[RF] Restored 2 RF codes from storage
 ```
 
 ## Technical Details
@@ -217,14 +235,13 @@ automation:
 ### RF Code Storage
 
 Learned codes are stored in NVS (Non-Volatile Storage) and persist across reboots:
-- **Key:** `rf_code` - The RF code value (unsigned long)
-- **Key:** `rf_bits` - Bit length (unsigned int)
-- **Key:** `rf_proto` - Protocol number (unsigned int)
+- **Namespace:** `rf-bridge`
+- **Data:** Array of code structures (name, code, bits, protocol, active flag)
 
 ### Supported Protocols
 
 The RCSwitch library supports multiple 433MHz protocols:
-- **Protocol 1:** Most common (e.g., cheap RF outlets)
+- **Protocol 1:** Most common (cheap RF outlets, doorbells)
 - **Protocol 2-7:** Various other encodings
 
 Your receiver will automatically detect the protocol.
@@ -238,6 +255,13 @@ The 2-second auto-off delay is defined in `config.h`:
 
 Change this value if you need a different duration.
 
+### Maximum RF Codes
+
+Up to 10 RF codes can be learned (configurable in `config.h`):
+```cpp
+#define MAX_RF_CODES 10
+```
+
 ## Troubleshooting
 
 ### RF Code Not Capturing
@@ -245,11 +269,12 @@ Change this value if you need a different duration.
 **Problem:** Learning mode times out without capturing signal
 
 **Solutions:**
-1. Verify receiver is connected to GPIO 15
-2. Check power supply (3.3V or 5V depending on module)
-3. Ensure transmitter is within range (typically 10-50 meters)
+1. Verify receiver is connected to GPIO 22 (or your configured pin)
+2. Check power supply (5V recommended for best sensitivity)
+3. Ensure transmitter is within range (start very close, ~1 meter)
 4. Try different transmitter buttons
 5. Check serial monitor for error messages
+6. Add a 17.3cm wire antenna
 
 ### Multiple Codes from Same Button
 
@@ -263,8 +288,8 @@ Change this value if you need a different duration.
 
 **Checklist:**
 1. Verify MQTT broker is running
-2. Check ESP32 is connected to MQTT (check main dashboard)
-3. Ensure a code has been learned
+2. Check ESP32 is connected to MQTT (check web interface)
+3. Ensure at least one code has been learned
 4. Restart Home Assistant to force discovery
 5. Check Home Assistant MQTT integration logs
 
@@ -279,13 +304,23 @@ Change this value if you need a different duration.
 2. Move receiver away from interference sources
 3. Use transmitters with longer/unique codes
 
+### Weak Range
+
+**Problem:** Only works when very close
+
+**Solutions:**
+1. Add 17.3cm wire antenna to receiver
+2. Use 5V power instead of 3.3V
+3. Move receiver away from ESP32 and WiFi router
+4. Position receiver away from metal objects
+
 ## Advanced Configuration
 
 ### Change RF Receiver Pin
 
 Edit `include/config.h`:
 ```cpp
-#define RF_RECEIVER_PIN 15  // Change to your desired GPIO
+#define RF_RECEIVER_PIN 22  // Change to your desired GPIO
 ```
 
 Re-upload firmware after changes.
@@ -297,17 +332,12 @@ Edit `include/config.h`:
 #define RF_TRIGGER_DURATION 5000  // 5 seconds instead of 2
 ```
 
-### Multiple RF Codes
+### Increase Max RF Codes
 
-**Current Limitation:** Only one RF code can be learned at a time.
-
-**Workaround:** 
-- Learn code from transmitter button 1
-- Create automation in Home Assistant
-- Clear code and learn button 2
-- Create separate automation
-
-**Future Enhancement:** Multi-code support could be added if needed.
+Edit `include/config.h`:
+```cpp
+#define MAX_RF_CODES 20  // Increase from 10
+```
 
 ## Use Cases
 
@@ -315,26 +345,37 @@ Edit `include/config.h`:
 - Learn your doorbell's RF signal
 - Trigger Home Assistant notifications
 - Turn on porch light automatically
+- Record video from doorbell camera
 
 ### 2. Panic Button
 - Use RF key fob as emergency alert
 - Trigger security actions
 - Send notifications to phone
+- Turn on all lights
 
 ### 3. Remote Scene Control
 - Press RF button to activate scene
 - No need to open phone/dashboard
 - Physical button convenience
+- One button for multiple actions
 
 ### 4. Elderly Care
 - Give elderly person RF pendant
 - Monitor button presses
 - Alert caregivers if help needed
+- Check-in system
 
 ### 5. Garage Door Sensor
 - Learn garage door opener signal
 - Track door open/close events
 - Automate lights when entering
+- Security alerts
+
+### 6. Motion Sensors
+- Use RF PIR sensors
+- Trigger lighting automations
+- Security monitoring
+- Presence detection
 
 ## Safety Notes
 
@@ -348,33 +389,35 @@ Edit `include/config.h`:
 
 | Setting | Value | Location |
 |---------|-------|----------|
-| **GPIO Pin** | 15 | `config.h` |
+| **GPIO Pin** | 22 | `config.h` |
 | **Auto-Off Duration** | 2000ms (2 sec) | `config.h` |
-| **Learning Timeout** | 30 seconds | `rf_learn.html` |
+| **Max RF Codes** | 10 | `config.h` |
+| **Learning Timeout** | 30 seconds | Web interface |
 | **Storage** | NVS Preferences | Persistent |
-| **MQTT Topic** | `homeassistant/switch/esp32-relay/rf_trigger/state` | Automatic |
+| **MQTT Topic** | `homeassistant/switch/esp32-rf/rf_X/state` | Automatic |
 
 ## Code Reference
 
 ### Main Functions
 
-- `setupRFReceiver()` - Initialize receiver on GPIO 15
+- `setupRFReceiver()` - Initialize receiver on configured GPIO
 - `checkRFSignal()` - Check for incoming RF signals (called in loop)
 - `publishRFTriggerState()` - Publish ON/OFF to MQTT
-- `saveRFCode()` - Save learned code to NVS
-- `restoreRFCode()` - Load code from NVS on boot
+- `saveRFCodes()` - Save all codes to NVS
+- `restoreRFCodes()` - Load codes from NVS on boot
+- `addRFCode()` - Add new code to storage
+- `deleteRFCode()` - Remove code from storage
 
 ### API Routes
 
 - `/api/rf/status` - Get current RF status
+- `/api/rf/codes` - Get all learned codes
 - `/api/rf/learn` - Start learning mode
 - `/api/rf/stop` - Stop learning mode
-- `/api/rf/clear` - Clear learned code
+- `/api/rf/delete` - Delete specific code
 
 ---
 
-**Version:** 1.0.0  
-**Last Updated:** October 2025  
-**Author:** AI Assistant  
+**Version:** 2.0.0
+**Last Updated:** 2025
 **Status:** ✅ Production Ready
-

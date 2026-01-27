@@ -1,4 +1,4 @@
-# Quick Reference Card
+# Quick Reference Card - ESP32 RF-to-MQTT Bridge
 
 ## 🚀 Quick Start (5 Minutes)
 
@@ -7,13 +7,13 @@
    pio run --target uploadfs && pio run --target upload
    ```
 
-2. **Connect to WiFi AP**: `ESP32-Relay-Setup` (password: `12345678`)
+2. **Connect to WiFi AP**: `ESP32-RF-Setup` (password: `12345678`)
 
 3. **Configure WiFi & MQTT** via captive portal
 
-4. **Access web interface**: `http://esp32-relay.local`
+4. **Access web interface**: `http://esp32-rf.local`
 
-5. **Check Home Assistant**: Devices & Services → MQTT
+5. **Learn RF codes**: Go to RF Manager, enter name, click Learn
 
 ---
 
@@ -21,22 +21,19 @@
 
 | Setting | Value |
 |---------|-------|
-| AP Name | `ESP32-Relay-Setup` |
+| AP Name | `ESP32-RF-Setup` |
 | AP Password | `12345678` |
-| Web Interface | `http://esp32-relay.local` |
+| Web Interface | `http://esp32-rf.local` |
 | MQTT Topic Prefix | `homeassistant/switch/` |
-| Default GPIO Pins | 23, 22, 21, 19 |
-| Number of Relays | 4 |
+| RF Receiver GPIO | 22 |
+| Max RF Codes | 10 |
 
 ---
 
-## 🔌 GPIO Pin Map (Default)
+## 🔌 GPIO Pin Map
 
 ```
-GPIO 23 → Relay 1
-GPIO 22 → Relay 2  
-GPIO 21 → Relay 3
-GPIO 19 → Relay 4
+GPIO 22 → RF Receiver DATA
 ```
 
 ---
@@ -45,63 +42,53 @@ GPIO 19 → Relay 4
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/relays` | Get all relay states |
-| POST | `/api/relay` | Control relay |
+| GET | `/api/rf/status` | Get RF status |
+| GET | `/api/rf/codes` | Get all learned codes |
+| POST | `/api/rf/learn` | Start learning mode |
+| POST | `/api/rf/stop` | Stop learning mode |
+| POST | `/api/rf/delete` | Delete RF code |
 | GET | `/api/wifi` | WiFi information |
 | GET | `/api/mqtt` | MQTT status |
 | POST | `/api/reset` | Reset configuration |
 
 ### Example API Usage
 
-**Get relay states**:
+**Get RF codes**:
 ```bash
-curl http://esp32-relay.local/api/relays
+curl http://esp32-rf.local/api/rf/codes
 ```
 
-**Turn ON relay 1**:
+**Start learning mode**:
 ```bash
-curl -X POST http://esp32-relay.local/api/relay \
-  -H "Content-Type: application/json" \
-  -d '{"relay":1,"state":true}'
+curl -X POST "http://esp32-rf.local/api/rf/learn" -d "name=Doorbell"
 ```
 
 ---
 
 ## 📡 MQTT Topics
 
-### Command Topics (Subscribe)
+### RF Trigger State Topics (Published)
 ```
-homeassistant/switch/esp32-relay/relay1/set
-homeassistant/switch/esp32-relay/relay2/set
+homeassistant/switch/esp32-rf/rf_0/state
+homeassistant/switch/esp32-rf/rf_1/state
 ...
 ```
 
-### State Topics (Publish)
+### Availability Topic
 ```
-homeassistant/switch/esp32-relay/relay1/state
-homeassistant/switch/esp32-relay/relay2/state
-...
+homeassistant/switch/esp32-rf/availability
 ```
 
 ### Discovery Topics
 ```
-homeassistant/switch/esp32-relay/relay1/config
+homeassistant/binary_sensor/esp32-rf_rf_0/config
+homeassistant/binary_sensor/esp32-rf_rf_1/config
 ...
 ```
 
-### Manual MQTT Commands
-
-**Turn ON relay 1**:
+### Subscribe to all RF topics
 ```bash
-mosquitto_pub -h BROKER_IP \
-  -t "homeassistant/switch/esp32-relay/relay1/set" \
-  -m "ON"
-```
-
-**Subscribe to all states**:
-```bash
-mosquitto_sub -h BROKER_IP \
-  -t "homeassistant/switch/esp32-relay/#" -v
+mosquitto_sub -h BROKER_IP -t "homeassistant/switch/esp32-rf/#" -v
 ```
 
 ---
@@ -115,15 +102,18 @@ mqtt:
   discovery: true
 ```
 
-### Manual Switch Config (if needed)
+### Example Automation
 ```yaml
-switch:
-  - platform: mqtt
-    name: "Relay 1"
-    state_topic: "homeassistant/switch/esp32-relay/relay1/state"
-    command_topic: "homeassistant/switch/esp32-relay/relay1/set"
-    payload_on: "ON"
-    payload_off: "OFF"
+automation:
+  - alias: "RF Doorbell Alert"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.rf_doorbell
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Someone at the door!"
 ```
 
 ---
@@ -145,9 +135,6 @@ pio device monitor
 # Clean build
 pio run --target clean
 
-# Erase flash
-pio run --target erase
-
 # Build (no upload)
 pio run
 ```
@@ -156,7 +143,7 @@ pio run
 
 | File | Purpose |
 |------|---------|
-| `include/config.h` | GPIO pins, relay count, names |
+| `include/config.h` | GPIO pins, device name, settings |
 | `platformio.ini` | Libraries, board settings |
 | `data/index.html` | Web interface structure |
 | `data/style.css` | Web interface styling |
@@ -166,42 +153,23 @@ pio run
 
 ## 🔧 Customization Snippets
 
-### Change Number of Relays
+### Change RF Pin
 **File**: `include/config.h`
 ```cpp
-#define NUM_RELAYS 8  // Your relay count
-
-const int RELAY_PINS[NUM_RELAYS] = {
-    23, 22, 21, 19, 18, 5, 4, 2
-};
-```
-
-### Change Relay Names
-**File**: `include/config.h`
-```cpp
-const char* RELAY_NAMES[NUM_RELAYS] = {
-    "Living Room Light",
-    "Bedroom Fan",
-    "Garden Pump",
-    "Garage Door"
-};
+#define RF_RECEIVER_PIN 22  // Change to your GPIO
 ```
 
 ### Change Hostname
 **File**: `include/config.h`
 ```cpp
-#define MDNS_HOSTNAME "my-relay"
-// Access at: http://my-relay.local
+#define MDNS_HOSTNAME "my-rf-bridge"
+// Access at: http://my-rf-bridge.local
 ```
 
-### Invert Relay Logic (Active-Low)
-**File**: `src/relay_control.cpp`
+### Change Trigger Duration
+**File**: `include/config.h`
 ```cpp
-// In setState():
-digitalWrite(RELAY_PINS[relayIndex], state ? LOW : HIGH);
-
-// In init():
-digitalWrite(RELAY_PINS[i], HIGH);
+#define RF_TRIGGER_DURATION 5000  // 5 seconds instead of 2
 ```
 
 ---
@@ -214,8 +182,8 @@ digitalWrite(RELAY_PINS[i], HIGH);
 | Captive portal won't open | Go to `192.168.4.1` manually |
 | `.local` not working | Use IP address instead |
 | MQTT not connecting | Check broker IP, restart broker |
-| HA not discovering | Restart HA, check `discovery: true` |
-| Relays inverted | Invert logic in relay_control.cpp |
+| RF not capturing | Check wiring, try 5V power |
+| HA not discovering | Learn a code first, restart HA |
 | Web page blank | Re-upload filesystem |
 
 ---
@@ -223,19 +191,16 @@ digitalWrite(RELAY_PINS[i], HIGH);
 ## 📊 Serial Monitor Output (Normal Boot)
 
 ```
-=== ESP32 Relay Controller ===
-Relays initialized
+=== ESP32 RF-to-MQTT Bridge ===
+[Storage] Restoring settings...
 WiFi connected!
 IP address: 192.168.1.50
-mDNS responder started: http://esp32-relay.local
-Attempting MQTT connection...connected
-Subscribed to: homeassistant/switch/esp32-relay/relay1/set
-Subscribed to: homeassistant/switch/esp32-relay/relay2/set
-Published discovery for Relay 1
-Published discovery for Relay 2
+[mDNS] Responder started: http://esp32-rf.local
+[MQTT] Connected!
+[RF] Receiver initialized on GPIO 22
+[RF] Restored 2 RF codes from storage
 Web server started
 Setup complete!
-Access web interface at: http://esp32-relay.local
 ```
 
 ---
@@ -245,11 +210,11 @@ Access web interface at: http://esp32-relay.local
 - [ ] Code uploads successfully
 - [ ] ESP32 boots and connects to WiFi
 - [ ] Web interface accessible
-- [ ] Relays click when toggled via web
+- [ ] RF Manager page works
+- [ ] Can learn new RF codes
 - [ ] MQTT connects to broker
 - [ ] Home Assistant discovers device
-- [ ] HA switches control relays
-- [ ] States sync between web and HA
+- [ ] RF triggers work in HA
 
 ---
 
@@ -285,7 +250,7 @@ arp -a | grep esp
 |---------|----------|----------|
 | WiFi AP | - | `12345678` |
 | MQTT | (configure in portal) | (configure in portal) |
-| Web Interface | - | No auth (add if needed) |
+| Admin Panel | `admin` | `Solacepass@123` |
 
 ---
 
@@ -294,13 +259,13 @@ arp -a | grep esp
 ```
 esp32_rellay/
 ├── include/
-│   ├── config.h              # Main configuration
-│   └── relay_control.h       # Relay control header
+│   └── config.h              # Main configuration
 ├── src/
-│   ├── main.cpp              # Main program
-│   └── relay_control.cpp     # Relay implementation
+│   └── main.cpp              # Main program
 ├── data/
 │   ├── index.html            # Web interface
+│   ├── rf_manager.html       # RF learning page
+│   ├── admin.html            # Admin panel
 │   ├── style.css             # Styles
 │   └── script.js             # JavaScript
 ├── platformio.ini            # PlatformIO config
@@ -317,13 +282,6 @@ esp32_rellay/
 **Via Web Interface**:
 Settings → Reset Configuration
 
-**Via Code** (add temporarily):
-```cpp
-WiFiManager wm;
-wm.resetSettings();
-ESP.restart();
-```
-
 **Via Erase**:
 ```bash
 pio run --target erase
@@ -336,13 +294,8 @@ pio run --target erase
 - PlatformIO Docs: https://docs.platformio.org/
 - ESP32 Pinout: https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
 - Home Assistant MQTT: https://www.home-assistant.io/integrations/mqtt/
-- WiFiManager: https://github.com/tzapu/WiFiManager
+- RCSwitch Library: https://github.com/sui77/rc-switch
 
 ---
 
 **Keep this reference handy for quick lookups! 📌**
-
-
-
-
-

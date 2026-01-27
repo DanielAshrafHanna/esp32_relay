@@ -1,321 +1,128 @@
-ESP32 RELAY CONTROLLER - PROJECT STRUCTURE
-==========================================
+ESP32 RF-to-MQTT Bridge - Project File Structure
+================================================
 
 esp32_rellay/
 │
-├── 📂 CORE FIRMWARE FILES
-│   ├── 📂 include/                          Configuration & Headers
-│   │   ├── config.h                         ⚙️  Main configuration (GPIO pins, WiFi, MQTT)
-│   │   └── relay_control.h                  🔌 Relay control class header
-│   │
-│   ├── 📂 src/                              Source Code
-│   │   ├── main.cpp                         🎯 Main program (WiFi, MQTT, Web Server)
-│   │   └── relay_control.cpp                🔌 Relay control implementation
-│   │
-│   └── platformio.ini                       ⚙️  PlatformIO configuration & libraries
+├── include/                          # Header files
+│   └── config.h                      # Main configuration
+│                                     # - Device name, AP name, hostname
+│                                     # - RF receiver pin (GPIO 22)
+│                                     # - RF trigger duration
+│                                     # - MQTT settings
+│                                     # - Web server port
 │
-├── 📂 WEB INTERFACE FILES (Upload to ESP32)
-│   └── 📂 data/                             Web Interface (LittleFS)
-│       ├── index.html                       🌐 Main web page
-│       ├── style.css                        🎨 Styling & theme
-│       └── script.js                        ⚡ JavaScript logic & API calls
+├── src/                              # Source code
+│   └── main.cpp                      # Main firmware
+│                                     # - WiFi management
+│                                     # - MQTT connection & discovery
+│                                     # - RF receiver logic
+│                                     # - Web server & API
+│                                     # - NVS storage
 │
-├── 📂 DOCUMENTATION
-│   ├── 🚀 GET_STARTED.md                    ⭐ START HERE - Quick setup guide
-│   ├── 📖 README.md                         📚 Complete documentation & reference
-│   ├── 📋 SETUP_GUIDE.md                    🔧 Step-by-step setup instructions
-│   ├── 🔌 WIRING.md                         ⚡ Hardware wiring & safety guide
-│   ├── 🐛 TROUBLESHOOTING.md                🔍 Problem solving & debugging
-│   ├── ⚡ QUICK_REFERENCE.md                📑 Commands & API reference
-│   ├── 📊 PROJECT_SUMMARY.md                📈 Technical overview & architecture
-│   ├── 📁 FILE_STRUCTURE.txt                📂 This file - project layout
-│   └── 🏠 home_assistant_example.yaml       🏡 Home Assistant config examples
+├── data/                             # Web interface (LittleFS)
+│   ├── index.html                    # Main dashboard
+│   ├── rf_manager.html               # RF code learning page
+│   ├── admin.html                    # Admin configuration
+│   ├── style.css                     # Global styles
+│   └── script.js                     # JavaScript functionality
 │
-└── 📂 PROJECT FILES
-    └── .gitignore                           🚫 Git ignore rules
+├── platformio.ini                    # PlatformIO configuration
+│                                     # - Board: esp32dev
+│                                     # - Framework: arduino
+│                                     # - Libraries
+│                                     # - Build flags
+│
+├── .gitignore                        # Git ignore rules
+│
+└── Documentation/
+    │
+    ├── Getting Started
+    │   ├── README.md                 # Main documentation
+    │   ├── GET_STARTED.md            # Beginner guide
+    │   ├── SETUP_GUIDE.md            # Detailed setup
+    │   └── QUICK_REFERENCE.md        # Command cheat sheet
+    │
+    ├── Hardware
+    │   └── WIRING.md                 # RF receiver wiring
+    │
+    ├── Features
+    │   ├── RF_RECEIVER_GUIDE.md      # Complete RF guide
+    │   ├── RF_IMPLEMENTATION_SUMMARY.md  # RF quick reference
+    │   ├── WIFI_RECONNECTION.md      # WiFi behavior
+    │   └── home_assistant_example.yaml   # HA config examples
+    │
+    ├── Troubleshooting
+    │   ├── CHANGELOG.md              # Version history & fixes
+    │   ├── TROUBLESHOOTING.md        # General troubleshooting
+    │   ├── MDNS_FIX.md               # .local URL issues
+    │   ├── PC_MDNS_TROUBLESHOOTING.md    # PC-side mDNS setup
+    │   └── MQTT_OPTIMIZATION.md      # MQTT performance
+    │
+    └── Project Info
+        ├── PROJECT_SUMMARY.md        # High-level overview
+        ├── DOCUMENTATION_INDEX.md    # Documentation guide
+        ├── userguide.md              # User guide
+        └── FILE_STRUCTURE.txt        # This file
 
-
-UPLOAD PROCESS
-==============
-
-1. Upload Filesystem First:
-   pio run --target uploadfs
-   
-   Uploads: data/ folder → ESP32 LittleFS
-   Contains: Web interface (HTML, CSS, JS)
-
-2. Upload Firmware:
-   pio run --target upload
-   
-   Uploads: src/ + include/ → ESP32 Flash
-   Contains: Main program
-
-
-CONFIGURATION WORKFLOW
-=====================
-
-1. Edit Hardware Config:
-   📝 include/config.h
-   - Number of relays
-   - GPIO pins
-   - Relay names
-   - Device hostname
-
-2. Upload Filesystem:
-   🔼 pio run --target uploadfs
-
-3. Upload Firmware:
-   🔼 pio run --target upload
-
-4. Configure via Web Portal:
-   📱 Connect to ESP32-Relay-Setup
-   - WiFi credentials
-   - MQTT broker settings
-
-5. Access Web Interface:
-   🌐 http://esp32-relay.local
-
-
-FILE PURPOSES
-============
-
-FIRMWARE
---------
-main.cpp              - WiFi manager, MQTT client, web server, main loop
-relay_control.cpp     - Relay on/off logic, state management
-config.h              - All configurable settings
-relay_control.h       - Class definition for relay control
-platformio.ini        - Dependencies, board config, build settings
-
-WEB INTERFACE
-------------
-index.html            - Page structure, relay cards, system info
-style.css             - Dark theme, responsive design, animations
-script.js             - API calls, real-time updates, relay control
-
-DOCUMENTATION
-------------
-GET_STARTED.md        - Quick start guide (15 minutes to working system)
-README.md             - Complete project documentation
-SETUP_GUIDE.md        - Detailed step-by-step instructions
-WIRING.md             - Hardware connections & diagrams
-TROUBLESHOOTING.md    - Common issues & solutions
-QUICK_REFERENCE.md    - API, MQTT topics, commands
-PROJECT_SUMMARY.md    - Architecture, features, technical details
-home_assistant_example.yaml - HA configuration samples
-
-
-KEY FEATURES BY FILE
-===================
-
-main.cpp provides:
-✅ WiFi configuration portal (WiFiManager)
-✅ mDNS support (.local domains)
-✅ MQTT client with auto-reconnect
-✅ Home Assistant auto-discovery
-✅ REST API for relay control
-✅ Async web server
-✅ Configuration persistence
-
-relay_control.cpp provides:
-✅ Individual relay control
-✅ State management
-✅ All on/off functions
-✅ Toggle functionality
-
-Web Interface provides:
-✅ Real-time relay control
-✅ WiFi/MQTT status display
-✅ System information
-✅ Configuration reset
-✅ Mobile responsive design
-✅ Dark theme UI
-
-
-DEPENDENCIES (Auto-installed)
-=============================
-
-WiFiManager       → WiFi configuration portal
-PubSubClient      → MQTT communication
-ArduinoJson       → JSON parsing
-ESPAsyncWebServer → Async web server
-AsyncTCP          → TCP async support
-LittleFS          → Filesystem (built-in)
-ESPmDNS          → .local domain support (built-in)
-
-
-COMMUNICATION FLOW
-=================
-
-User Interface → ESP32:
-  Web UI → HTTP/JSON → ESP32 → GPIO → Relays
-  Home Assistant → MQTT → ESP32 → GPIO → Relays
-
-ESP32 → User Interface:
-  Relays → GPIO → ESP32 → HTTP/JSON → Web UI
-  Relays → GPIO → ESP32 → MQTT → Home Assistant
-
-
-FILE SIZES (Approximate)
+Key Configuration Files
 =======================
 
-Firmware:
-  main.cpp              ~10 KB
-  relay_control.cpp     ~2 KB
-  Total compiled        ~800 KB (with libraries)
+include/config.h
+----------------
+- DEVICE_NAME: "ESP32-RF-Bridge"
+- AP_NAME: "ESP32-RF-Setup"
+- AP_PASSWORD: "12345678"
+- MDNS_HOSTNAME: "esp32-rf"
+- RF_RECEIVER_PIN: 22
+- RF_TRIGGER_DURATION: 2000 (ms)
+- MAX_RF_CODES: 10
 
-Web Interface:
-  index.html            ~4 KB
-  style.css             ~6 KB
-  script.js             ~4 KB
-  Total                 ~14 KB
+platformio.ini
+--------------
+- Board: esp32dev
+- Framework: Arduino
+- Libraries:
+  - WiFiManager
+  - PubSubClient
+  - ArduinoJson
+  - ESPAsyncWebServer
+  - AsyncTCP
+  - RCSwitch
+- Build flags:
+  - MQTT_KEEPALIVE=30
+  - MQTT_SOCKET_TIMEOUT=30
 
-Documentation:
-  All .md files         ~100 KB total
-
-
-CUSTOMIZATION MAP
-================
-
-Want to change...              Edit this file...
------------------              -----------------
-Number of relays               include/config.h
-GPIO pins                      include/config.h
-Relay names                    include/config.h
-Device hostname                include/config.h
-WiFi AP name/password          include/config.h
-MQTT topics                    include/config.h
-Web interface colors           data/style.css
-Web interface layout           data/index.html
-Web interface behavior         data/script.js
-Relay logic (active-low)       src/relay_control.cpp
-API endpoints                  src/main.cpp
-MQTT behavior                  src/main.cpp
-
-
-TYPICAL MODIFICATIONS
-====================
-
-1. 8 Relays Instead of 4:
-   - Edit include/config.h
-   - Change NUM_RELAYS to 8
-   - Update RELAY_PINS array
-   - Update RELAY_NAMES array
-   - Re-upload firmware
-
-2. Different GPIO Pins:
-   - Edit include/config.h
-   - Update RELAY_PINS array
-   - Re-upload firmware
-
-3. Custom Device Name:
-   - Edit include/config.h
-   - Change MDNS_HOSTNAME
-   - Re-upload firmware
-
-4. Web Theme Color:
-   - Edit data/style.css
-   - Change --primary-color
-   - Re-upload filesystem
-
-
-DEVELOPMENT WORKFLOW
-===================
-
-1. Make changes to source files
-2. Build: pio run
-3. Upload filesystem (if web files changed): pio run --target uploadfs
-4. Upload firmware: pio run --target upload
-5. Monitor: pio device monitor
-6. Test via web interface or Home Assistant
-
-
-BACKUP RECOMMENDATIONS
-=====================
-
-Always backup these files before major changes:
-✅ include/config.h           (your settings)
-✅ src/main.cpp               (if modified)
-✅ data/* files               (if customized)
-✅ home_assistant_example.yaml (your HA config)
-
-
-READING ORDER (For New Users)
-=============================
-
-1. 📖 GET_STARTED.md          ← Start here
-2. 📖 WIRING.md                ← Before connecting hardware
-3. 📖 SETUP_GUIDE.md           ← During setup
-4. 📖 README.md                ← Full reference
-5. 📖 QUICK_REFERENCE.md       ← Daily use
-6. 📖 TROUBLESHOOTING.md       ← When needed
-7. 📖 PROJECT_SUMMARY.md       ← Understanding internals
-
-
-QUICK REFERENCE
-==============
-
-Upload Everything:
-  pio run --target uploadfs && pio run --target upload
-
-Monitor Serial:
-  pio device monitor
-
-Clean Build:
-  pio run --target clean && pio run
-
-Access Web Interface:
-  http://esp32-relay.local
-
-Reset WiFi:
-  Web interface → Settings → Reset Configuration
-
-Test MQTT:
-  mosquitto_sub -h BROKER_IP -t "homeassistant/switch/esp32-relay/#"
-
-
-PROJECT HEALTH CHECK
-===================
-
-✅ All source files present
-✅ Web interface files complete
-✅ Documentation comprehensive
-✅ Configuration examples included
-✅ Troubleshooting guide provided
-✅ Wiring diagrams included
-✅ Quick start guide available
-✅ Home Assistant examples ready
-
-🎉 PROJECT READY FOR DEPLOYMENT!
-
-
-SUPPORT & RESOURCES
+Web Interface URLs
 ==================
+- Main: http://esp32-rf.local
+- RF Manager: http://esp32-rf.local/rf_manager.html
+- Admin: http://esp32-rf.local/solaceadmin
+- API: http://esp32-rf.local/api/*
 
-Documentation:  All .md files in this folder
-Examples:       home_assistant_example.yaml
-Quick Start:    GET_STARTED.md
-Troubleshoot:   TROUBLESHOOTING.md
-Hardware:       WIRING.md
-API Reference:  QUICK_REFERENCE.md
+API Endpoints
+=============
+GET  /api/rf/status       - RF receiver status
+GET  /api/rf/codes        - All learned RF codes
+POST /api/rf/learn        - Start learning mode
+POST /api/rf/stop         - Stop learning mode
+POST /api/rf/delete       - Delete RF code
+GET  /api/wifi            - WiFi information
+GET  /api/mqtt            - MQTT status
+POST /api/mqtt/rediscover - Force discovery
+POST /api/reset           - Reset configuration
 
+MQTT Topics
+===========
+State: homeassistant/switch/esp32-rf/rf_X/state
+Availability: homeassistant/switch/esp32-rf/availability
+Discovery: homeassistant/binary_sensor/esp32-rf_rf_X/config
 
-VERSION INFORMATION
-==================
+NVS Storage
+===========
+Namespace: "rf-bridge"
+- mqtt_server, mqtt_port, mqtt_user, mqtt_pass, mqtt_hostname
+- rf_codes (array of learned codes)
+- rf_count (number of codes)
 
-Project Version:  1.0
-Platform:         ESP32
-Framework:        Arduino
-Build System:     PlatformIO
-Web Server:       ESPAsyncWebServer
-Protocol:         MQTT 3.1.1
-Integration:      Home Assistant
-
-
-END OF FILE STRUCTURE
-=====================
-
-
-
-
-
+Version: 2.0.0
+Last Updated: 2025
