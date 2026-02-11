@@ -23,5 +23,7 @@
 // RF Receiver Configuration
 #define RF_RECEIVER_PIN 22
 #define RF_TRIGGER_DURATION 2000  // 2 seconds in milliseconds
+#define RF_COOLDOWN_TIME 3000     // 3 seconds cooldown between triggers for same code
+#define RF_MIN_BIT_LENGTH 20      // Minimum bit length to accept (filter noise)
 
 #endif

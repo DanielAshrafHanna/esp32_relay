@@ -1,6 +1,6 @@
 # ESP32 RF-to-MQTT Bridge
 
-**Version 2.0.0** - 433MHz RF-to-MQTT Bridge with Home Assistant integration.
+**Version 2.0.1** - 433MHz RF-to-MQTT Bridge with Home Assistant integration.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
@@ -408,7 +408,13 @@ RF Manager:         http://esp32-rf.local/rf_manager.html
 
 ## Version History
 
-- **v2.0.0** - RF-to-MQTT Bridge (Current)
+- **v2.0.1** - RF false-trigger reduction (Current)
+  - Cooldown period (3 s) between triggers for the same RF code to debounce repeats
+  - Minimum bit-length filter to reject short/noisy signals
+  - Stricter receive tolerance (40%) to reduce false positives from electrical noise
+  - Serial debug logging for all received RF signals (`[RF-DEBUG]`) to help diagnose issues
+
+- **v2.0.0** - RF-to-MQTT Bridge
   - Complete refactor to RF-only device
   - Removed all relay functionality
   - Multi-code RF learning support (up to 10 codes)

@@ -526,7 +526,7 @@ void publishDiscovery() {
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
             device["model"] = "RF-to-MQTT Bridge";
-            device["sw_version"] = "2.0.0";
+            device["sw_version"] = "2.0.1";
             
             String output;
             serializeJson(doc, output);
@@ -927,7 +927,12 @@ void restoreSettings() {
 
 void setupRFReceiver() {
     rfReceiver.enableReceive(digitalPinToInterrupt(RF_RECEIVER_PIN));
-    Serial.printf("[RF] Receiver initialized on GPIO %d\n", RF_RECEIVER_PIN);
+    
+    // Set tighter receive tolerance to reduce false triggers from noise
+    // Default is 60, lower value = stricter matching (less false positives)
+    rfReceiver.setReceiveTolerance(40);
+    
+    Serial.printf("[RF] Receiver initialized on GPIO %d (tolerance: 40%%)\n", RF_RECEIVER_PIN);
     
     if (rfCodeCount > 0) {
         Serial.printf("[RF] %d code(s) loaded\n", rfCodeCount);
@@ -942,37 +947,63 @@ void checkRFSignal() {
         unsigned int bitLength = rfReceiver.getReceivedBitlength();
         unsigned int protocol = rfReceiver.getReceivedProtocol();
         
-        if (receivedCode != 0) {
-            if (rfLearningMode) {
-                int newSlot = addRFCode(pendingRFName, receivedCode, bitLength, protocol);
-                rfLearningMode = false;
-                
-                if (newSlot >= 0) {
-                    Serial.printf("[RF] Code learned '%s': %lu (bit: %d, protocol: %d) in slot %d\n", 
-                                 pendingRFName, receivedCode, bitLength, protocol, newSlot);
-                    Serial.println("[RF] Use /api/mqtt/rediscover to update HA entities, or reboot.");
-                } else {
-                    Serial.println("[RF] ERROR: Failed to add code (array full)");
-                }
-                
-                pendingRFName[0] = '\0';
+        // Filter out noise: reject codes with 0 value or too short bit length
+        if (receivedCode == 0 || bitLength < RF_MIN_BIT_LENGTH) {
+            rfReceiver.resetAvailable();
+            return;
+        }
+        
+        if (rfLearningMode) {
+            int newSlot = addRFCode(pendingRFName, receivedCode, bitLength, protocol);
+            rfLearningMode = false;
+            
+            if (newSlot >= 0) {
+                Serial.printf("[RF] Code learned '%s': %lu (bit: %d, protocol: %d) in slot %d\n", 
+                             pendingRFName, receivedCode, bitLength, protocol, newSlot);
+                Serial.println("[RF] Use /api/mqtt/rediscover to update HA entities, or reboot.");
+            } else {
+                Serial.println("[RF] ERROR: Failed to add code (array full)");
             }
-            else {
-                for (int i = 0; i < MAX_RF_CODES; i++) {
-                    if (rfCodes[i].active && 
-                        rfCodes[i].code == receivedCode && 
-                        rfCodes[i].bitLength == bitLength && 
-                        rfCodes[i].protocol == protocol) {
-                        
-                        Serial.printf("[RF] Trigger detected '%s': %lu (slot %d)\n", 
-                                     rfCodes[i].name, receivedCode, i);
-                        
-                        rfCodes[i].lastTrigger = millis();
-                        publishRFTriggerState(i);
-                        
+            
+            pendingRFName[0] = '\0';
+        }
+        else {
+            unsigned long currentTime = millis();
+            bool matched = false;
+            
+            // DEBUG: Log ALL received signals to help diagnose false triggers
+            Serial.printf("[RF-DEBUG] Received: code=%lu, bits=%d, proto=%d\n", 
+                         receivedCode, bitLength, protocol);
+            
+            for (int i = 0; i < MAX_RF_CODES; i++) {
+                if (rfCodes[i].active && 
+                    rfCodes[i].code == receivedCode && 
+                    rfCodes[i].bitLength == bitLength && 
+                    rfCodes[i].protocol == protocol) {
+                    
+                    matched = true;
+                    
+                    // COOLDOWN CHECK: Prevent rapid re-triggering (debounce)
+                    unsigned long timeSinceLastTrigger = currentTime - rfCodes[i].lastTrigger;
+                    if (timeSinceLastTrigger < RF_COOLDOWN_TIME) {
+                        // Too soon, ignore this trigger (likely noise or repeated signal)
+                        Serial.printf("[RF] Ignored '%s' - cooldown (%lu ms since last)\n", 
+                                     rfCodes[i].name, timeSinceLastTrigger);
                         break;
                     }
+                    
+                    Serial.printf("[RF] Trigger detected '%s': %lu (slot %d)\n", 
+                                 rfCodes[i].name, receivedCode, i);
+                    
+                    rfCodes[i].lastTrigger = currentTime;
+                    publishRFTriggerState(i);
+                    
+                    break;
                 }
+            }
+            
+            if (!matched) {
+                Serial.printf("[RF-DEBUG] Unknown code (not registered)\n");
             }
         }
         

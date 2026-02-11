@@ -4,7 +4,26 @@ This document tracks all versions, features, and fixes.
 
 ---
 
-## Version 2.0.0 - RF-to-MQTT Bridge (Current)
+## Version 2.0.1 - RF False-Trigger Reduction (Current)
+
+### Improvements
+
+#### 1. 🔇 Reduced False RF Triggers
+- **Cooldown period**: 3-second cooldown between triggers for the same RF code (configurable via `RF_COOLDOWN_TIME` in `config.h`) to debounce repeated signals and noise
+- **Minimum bit length**: Signals shorter than 20 bits are rejected (`RF_MIN_BIT_LENGTH`) to filter out noisy/invalid receptions
+- **Stricter receive tolerance**: RCSwitch tolerance set to 40% (from default 60%) for stricter timing matching and fewer false positives from electrical noise
+
+#### 2. 📋 Debug Logging
+- All received RF signals are logged to Serial: `[RF-DEBUG] Received: code=..., bits=..., proto=...`
+- Unknown (unregistered) codes logged as `[RF-DEBUG] Unknown code (not registered)` to help diagnose interference vs. real button presses
+
+### Config Additions (`include/config.h`)
+- `RF_COOLDOWN_TIME` (3000 ms)
+- `RF_MIN_BIT_LENGTH` (20)
+
+---
+
+## Version 2.0.0 - RF-to-MQTT Bridge
 
 ### 🚀 Major Release - Complete Refactor
 
