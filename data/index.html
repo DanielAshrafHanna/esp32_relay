@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Relay Controller</title>
+    <title>ESP32 RF Repeater</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🔌 ESP32 Relay Controller</h1>
+            <h1>📡 ESP32 RF Repeater</h1>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="label">WiFi:</span>
@@ -20,21 +20,10 @@
                     <span class="label">IP:</span>
                     <span id="wifi-ip">--</span>
                 </div>
-                <div class="status-item">
-                    <span class="label">MQTT:</span>
-                    <span id="mqtt-status" class="status-badge">Disconnected</span>
-                </div>
             </div>
         </header>
 
         <main>
-            <section class="relays-section">
-                <h2>Relay Control</h2>
-                <div id="relays-container" class="relays-grid">
-                    <!-- Relays will be loaded here dynamically -->
-                </div>
-            </section>
-
             <section class="info-section">
                 <h2>System Information</h2>
                 <div class="info-grid">
@@ -46,34 +35,28 @@
                         <p><strong>Signal:</strong> <span id="info-rssi">--</span> dBm</p>
                         <p><strong>Uptime:</strong> <span id="uptime">--</span></p>
                     </div>
-                    <div class="info-card">
-                        <h3>MQTT</h3>
-                        <p><strong>Server:</strong> <span id="mqtt-server">--</span></p>
-                        <p><strong>Port:</strong> <span id="mqtt-port">--</span></p>
-                        <p><strong>Status:</strong> <span id="mqtt-connected">--</span></p>
-                    </div>
                 </div>
             </section>
 
             <section class="settings-section">
-                <h2>Settings</h2>
+                <h2>Controls</h2>
                 <div class="settings-card">
-                    <p>Configure your 433MHz RF remote signals for Home Assistant</p>
+                    <p>Learn and manage saved RF signals for repeater matching.</p>
                     <a href="/rf_manager.html" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">📡 RF Manager</a>
                 </div>
                 <div class="settings-card">
-                    <p>Restart the ESP32 controller</p>
+                    <p>Restart the ESP32 repeater.</p>
                     <a href="/restart" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">🔄 Restart ESP32</a>
                 </div>
                 <div class="settings-card">
-                    <p>Reset WiFi and MQTT settings to reconfigure</p>
+                    <p>Reset WiFi settings to reconfigure network access.</p>
                     <button id="reset-btn" class="btn-danger">Reset Configuration</button>
                 </div>
             </section>
         </main>
 
         <footer>
-            <p>ESP32 Relay Controller v1.0 | Home Assistant Compatible</p>
+            <p>ESP32 RF Repeater | Standalone RF Extender</p>
         </footer>
     </div>
 

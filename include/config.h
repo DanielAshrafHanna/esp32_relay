@@ -6,11 +6,6 @@
 #define AP_NAME "ESP32-RF-Setup"
 #define AP_PASSWORD "12345678"
 
-// MQTT Configuration
-#define MQTT_PORT 1883
-#define MQTT_TOPIC_PREFIX "homeassistant/switch/"
-#define MQTT_DISCOVERY_PREFIX "homeassistant"
-
 // Web Server
 #define WEB_SERVER_PORT 80
 
@@ -22,8 +17,10 @@
 
 // RF Receiver Configuration
 #define RF_RECEIVER_PIN 22
-#define RF_TRIGGER_DURATION 2000  // 2 seconds in milliseconds
+#define RF_TRANSMITTER_PIN 21
 #define RF_COOLDOWN_TIME 3000     // 3 seconds cooldown between triggers for same code
 #define RF_MIN_BIT_LENGTH 20      // Minimum bit length to accept (filter noise)
+#define RF_RETRANSMIT_COUNT 1     // Number of retransmissions per valid match
+#define RF_POST_TX_IGNORE_MS 300  // Ignore receiver briefly after local transmit
 
 #endif

@@ -1,3 +1,102 @@
+# ESP32 RF Repeater
+
+Standalone 433MHz RF repeater/extender for ESP32.
+
+This firmware receives RF signals, compares them against saved/learned codes, and retransmits matching signals to extend range. It does not require Home Assistant or MQTT.
+
+## Version
+
+- `3.0.0` (RF repeater mode)
+
+## What It Does
+
+- Receives RF on `GPIO 22` (`D22`)
+- Stores up to 10 learned RF codes in NVS (`Preferences`)
+- Matches incoming codes by:
+  - code value
+  - bit length
+  - protocol
+- Retransmits a matching signal on `GPIO 21` (`D21`) once
+- Applies cooldown (`RF_COOLDOWN_TIME`) to avoid rapid retrigger loops
+- Provides a Wi-Fi web UI for RF learning and management
+
+## Hardware
+
+- ESP32 dev board
+- 433MHz RF receiver module (for example SYN480R)
+- 433MHz RF transmitter module
+- Optional antenna wire for better range
+
+## Pin Mapping
+
+- RF Receiver DATA -> `GPIO 22` (`D22`)
+- RF Transmitter DATA -> `GPIO 21` (`D21`)
+- Receiver and transmitter GND -> ESP32 GND
+- Receiver/transmitter VCC -> module-rated supply (3.3V or 5V as supported)
+
+See `WIRING.md` for full wiring details.
+
+## Build and Flash
+
+```bash
+pio run
+pio run --target upload
+pio device monitor
+```
+
+## Web Interface
+
+After joining Wi-Fi, open:
+
+- `http://esp32-rf.local/` (dashboard)
+- `http://esp32-rf.local/rf_manager.html` (learn/manage RF codes)
+- `http://esp32-rf.local/solaceadmin` (admin actions)
+
+### RF Learning Flow
+
+1. Open RF Manager
+2. Enter a name for the signal
+3. Start learning
+4. Press your remote button
+5. Signal is saved and available for repeater matching
+
+## RF Repeater Logic
+
+1. Device receives an RF packet on `D22`
+2. Packet is filtered (`code != 0`, `bitLength >= RF_MIN_BIT_LENGTH`)
+3. If in learning mode, packet is saved
+4. If not in learning mode, packet is compared to saved entries
+5. On match and cooldown pass, signal is retransmitted on `D21`
+
+## Configuration
+
+Main constants are in `include/config.h`:
+
+- `RF_RECEIVER_PIN`
+- `RF_TRANSMITTER_PIN`
+- `RF_COOLDOWN_TIME`
+- `RF_MIN_BIT_LENGTH`
+- `RF_RETRANSMIT_COUNT`
+
+## Notes
+
+- This project no longer publishes MQTT topics.
+- Home Assistant-specific discovery/config is removed.
+- Saved RF codes are kept in NVS under namespace `rf-bridge`.
+
+## Troubleshooting
+
+- If nothing is detected:
+  - verify receiver DATA line is on `GPIO 22`
+  - verify common ground
+  - test with remote close to receiver first
+- If no retransmit:
+  - verify transmitter DATA line is on `GPIO 21`
+  - confirm the incoming signal is already learned
+  - check serial logs for matched/ignored events
+- If repeated/unstable behavior:
+  - increase `RF_COOLDOWN_TIME`
+  - improve antenna placement and power quality
 # ESP32 RF-to-MQTT Bridge
 
 **Version 2.0.1** - 433MHz RF-to-MQTT Bridge with Home Assistant integration.

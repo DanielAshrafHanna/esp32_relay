@@ -1,218 +1,64 @@
-# ESP32 RF-to-MQTT Bridge Wiring Guide
+# ESP32 RF Repeater Wiring
 
-## RF Receiver Module (SYN480R or Compatible)
+## Overview
 
-### Pin Connections
+This project uses two RF modules:
 
-```
-SYN480R Receiver → ESP32
-─────────────────────────
-VCC              → 3.3V or 5V
-GND              → GND  
-DATA             → GPIO 22
-```
+- Receiver module on `GPIO 22` (`D22`)
+- Transmitter module on `GPIO 21` (`D21`)
 
-### Visual Diagram
+## Connections
 
-```
-┌─────────────────┐                 ┌──────────────────────┐
-│     ESP32       │                 │   SYN480R Receiver   │
-│                 │                 │                      │
-│            GPIO22├────────────────┤DATA                  │
-│                 │                 │                      │
-│              GND├────────────────┤GND                   │
-│         3.3V/5V*├────────────────┤VCC                   │
-│                 │                 │                      │
-│     [USB Port]  │                 │  [Antenna]           │
-└─────────────────┘                 └──────────────────────┘
+```text
+RF Receiver (SYN480R compatible) -> ESP32
+-----------------------------------------
+VCC  -> 3.3V or 5V (module-dependent)
+GND  -> GND
+DATA -> GPIO 22 (D22)
+
+RF Transmitter -> ESP32
+-----------------------
+VCC  -> 3.3V or 5V (module-dependent)
+GND  -> GND
+DATA -> GPIO 21 (D21)
 ```
 
-## Important Notes
+## Basic Diagram
 
-### ⚠️ Voltage Considerations
-
-1. **Signal Voltage**: ESP32 GPIO is 3.3V tolerant
-   - Most SYN480R modules work with both 3.3V and 5V VCC
-   - Data output is typically 3.3V compatible
-
-2. **Module Power (VCC)**:
-   - **3.3V**: Lower power consumption, shorter range
-   - **5V**: Better sensitivity, longer range (recommended)
-
-### 📡 Antenna Considerations
-
-For best RF reception:
-
-1. **Wire Antenna**: 
-   - 433MHz wavelength ≈ 69cm
-   - Quarter-wave antenna ≈ **17.3cm** of wire
-   - Solder to ANT pad on receiver
-
-2. **Coil Antenna**:
-   - Some modules come with coil antennas
-   - Works but shorter range than wire
-
-3. **External Antenna**:
-   - Use SMA connector if module supports it
-   - Best for long range applications
-
-### 🔌 Recommended GPIO Pins
-
-The default is GPIO 22, but you can use other pins:
-
-#### ✅ Recommended GPIO Pins:
-- GPIO 22 (default)
-- GPIO 23, 21, 19, 18
-- GPIO 17, 16, 15
-- GPIO 13, 12, 14, 27
-- GPIO 26, 25, 33, 32
-
-#### ❌ Avoid These GPIO Pins:
-- **GPIO 0**: Boot mode (used for programming)
-- **GPIO 2**: Boot mode, onboard LED
-- **GPIO 5**: Boot mode
-- **GPIO 12**: Boot voltage selector
-- **GPIO 34-39**: Input only (but work for RF receiver)
-
-## Changing the RF Pin
-
-If you need to use a different GPIO pin:
-
-1. Edit `include/config.h`:
-   ```cpp
-   #define RF_RECEIVER_PIN 22  // Change to your desired GPIO
-   ```
-
-2. Re-upload firmware:
-   ```bash
-   pio run --target upload
-   ```
-
-## Power Supply Recommendations
-
-### For ESP32:
-- **Voltage**: 5V via USB or VIN pin
-- **Current**: 500mA minimum
-- **During WiFi**: Peaks to 500mA
-
-### For RF Receiver:
-- **Voltage**: 5V recommended for best sensitivity
-- **Current**: ~10-20mA typical
-
-### Total System:
-- **USB Power**: 5V 1A is sufficient
-- **External PSU**: 5V 1A or higher
-
-## Testing Procedure
-
-### 1. Initial Setup (No Transmitter)
-```
-1. Wire RF receiver to ESP32
-2. Power ESP32 via USB
-3. Upload firmware
-4. Check serial monitor for:
-   "[RF] Receiver initialized on GPIO 22"
+```text
+           +----------------------+
+           |        ESP32         |
+           |                      |
+Receiver ->| GPIO22 (D22)         |
+TX Module ->| GPIO21 (D21)        |
+           | GND -----------------+---- shared ground
+           | 3V3/5V ---- power ---+---- module VCCs
+           +----------------------+
 ```
 
-### 2. RF Signal Test
-```
-1. Open web interface RF Manager
-2. Click "Start Learning Mode"
-3. Press button on RF transmitter
-4. Serial monitor should show:
-   "[RF] Code learned: XXXXXX (bit: XX, protocol: X)"
-```
+## Power Notes
 
-### 3. Verify in Home Assistant
-```
-1. Check MQTT connection status
-2. Verify binary sensor appears
-3. Press RF transmitter
-4. Sensor should briefly turn ON then OFF
-```
+- Many receiver/transmitter boards can use 5V VCC for better range.
+- ESP32 GPIO is 3.3V logic; verify your RF module output is safe for ESP32 input.
+- Always use a common ground between ESP32 and both RF modules.
 
-## Troubleshooting
+## Antenna Notes
 
-### RF receiver not detecting signals
+- For 433MHz, a ~17.3 cm wire antenna typically improves range.
+- Keep antennas away from USB cable noise and metal surfaces.
 
-**Check wiring:**
-- Verify VCC has power (LED on module if present)
-- Verify GND is connected
-- Verify DATA is connected to correct GPIO
+## Verification Checklist
 
-**Check GPIO pin:**
-- Ensure the GPIO pin is correctly defined in config.h
-- Avoid pins used during boot
+1. Boot device and open serial monitor.
+2. Confirm logs show:
+   - receiver initialized on GPIO 22
+   - transmitter initialized on GPIO 21
+3. Learn a signal in RF Manager.
+4. Trigger learned remote button and verify retransmit log appears.
 
-**Check transmitter:**
-- Verify transmitter has battery
-- Try pressing different buttons
-- Move transmitter closer
+## If It Does Not Work
 
-### Weak RF range
-
-**Improve antenna:**
-- Add 17.3cm wire antenna
-- Keep antenna away from metal
-- Position receiver away from ESP32
-
-**Power supply:**
-- Use 5V instead of 3.3V for receiver
-- Ensure stable power supply
-
-**Interference:**
-- Move away from WiFi router
-- Separate from other electronics
-- Try different location
-
-### False triggers
-
-**Causes:**
-- Other 433MHz devices nearby
-- Electrical noise
-- Poor antenna connection
-
-**Solutions:**
-- Learn a different button/transmitter
-- Add shielding around receiver
-- Use transmitters with longer codes
-
-## Schematic
-
-```
-Complete RF Bridge System:
-
-   ┌─────────────┐
-   │  5V USB     │
-   │  Power      │
-   └──────┬──────┘
-          │
-   ┌──────▼──────────────┐
-   │      ESP32          │
-   │                     │
-   │   22           GND  │
-   └──┬──────────────┬───┘
-      │              │
-      │              │     ┌────────────┐
-      │              │     │ 5V Supply  │
-      │              │     │ (optional) │
-      │              │     └────┬───────┘
-      │              │          │
-   ┌──▼──────────────▼──────────▼─┐
-   │ DATA          GND         VCC │
-   │                                │
-   │      SYN480R RF Receiver       │
-   │                                │
-   │           [ANT]                │
-   │             │                  │
-   │         17.3cm wire            │
-   └────────────────────────────────┘
-```
-
-## Additional Resources
-
-- ESP32 Pinout: https://randomnerdtutorials.com/esp32-pinout-reference-gpios/
-- RCSwitch Library: https://github.com/sui77/rc-switch
-- 433MHz Antenna Calculator: https://www.changpuak.ch/electronics/calc_12.php
-
-**Remember**: For best results, use a proper wire antenna and power the receiver with 5V!
+- Recheck DATA wires (`D22` receive, `D21` transmit)
+- Recheck shared GND
+- Move remote close for initial learning
+- Confirm the incoming signal is one of the saved codes
