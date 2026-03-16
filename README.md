@@ -1,453 +1,516 @@
-# ESP32 RF-to-MQTT Bridge
+# ESP32 RF Bin Monitor
 
-**Version 2.0.1** - 433MHz RF-to-MQTT Bridge with Home Assistant integration.
+ESP32 firmware for a waste-bin monitoring system that receives 433 MHz RF signals and reports bin state to:
 
-> **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
->
-> **🔥 Having issues? Check [CHANGELOG.md](CHANGELOG.md) - every problem and fix is documented there!**
+- the hosted trash monitoring web app by webhook
+- MQTT / Home Assistant for future automation and integration
 
-> **⚡ Quick Upload Commands**
-> ```bash
-> pio run --target uploadfs    # Upload web files (when HTML/CSS/JS changes)
-> pio run --target upload       # Upload firmware (when code changes)
-> ```
+This README is the current source of truth for how the firmware works, how it is configured, and how to set up a new device.
 
-A professional ESP32-based RF-to-MQTT bridge that captures 433MHz RF signals and publishes them to Home Assistant via MQTT. Perfect for integrating RF remotes, doorbells, and sensors into your smart home.
+## What This Project Does
 
-## Features
+Each trash bin uses:
+- one RF transmitter for `FULL`
+- one RF transmitter for `NORMAL` / empty
+- one ESP32 with a 433 MHz RF receiver
 
-- 📻 **433MHz RF Receiver**: SYN480R receiver with learning mode for multiple RF codes
-- 🏠 **Home Assistant Integration**: Full MQTT auto-discovery support
-- 📡 **WiFi Manager**: Captive portal for easy WiFi and MQTT configuration
-- 🌐 **Web Interface**: Modern, responsive web UI accessible via `.local` domain
-- 🔐 **Admin Panel**: Password-protected configuration panel
-- 📱 **Mobile Responsive**: Works great on phones and tablets
-- 🔒 **Persistent Storage**: RF codes and settings saved across reboots
-- ⚡ **High Performance**: Optimized non-blocking code for instant response
+The ESP32:
+- learns exactly 2 RF signals total
+  - one signal labeled `FULL`
+  - one signal labeled `NORMAL`
+- detects those signals through the RF receiver
+- sends a webhook to the online dashboard
+- still publishes MQTT states so Home Assistant can be used later
+- stores all settings in ESP32 preferences so they survive reboot
 
-## Hardware Requirements
+## Current System Architecture
 
-- ESP32 Development Board (ESP32-D0WD-V3 or similar)
-- SYN480R 433MHz RF Receiver Module
-- Power Supply (5V for ESP32)
-- Jumper wires
+Bin sensor/transmitter flow:
 
-## Wiring
+1. Full sensor triggers RF transmitter A
+2. Empty sensor triggers RF transmitter B
+3. ESP32 receives RF
+4. ESP32 maps the RF code to either `FULL` or `NORMAL`
+5. ESP32 sends a webhook to the hosted app
+6. ESP32 also publishes MQTT state topics
 
-Connect the RF receiver to the GPIO pin defined in `include/config.h`:
+Hosted web app:
+- Repo: `trash-monitor-web`
+- Production URL: [https://trash-monitor-web.vercel.app](https://trash-monitor-web.vercel.app)
+- Webhook endpoint: [https://trash-monitor-web.vercel.app/api/bin-event](https://trash-monitor-web.vercel.app/api/bin-event)
 
-```
-SYN480R Receiver → ESP32
-─────────────────────────
-VCC              → 3.3V or 5V
-GND              → GND  
-DATA             → GPIO 22
-```
+## Current Firmware Behavior
 
-**Important**: Adjust the RF pin in `include/config.h` to match your hardware setup.
+### RF behavior
 
-**See** `WIRING.md` for detailed wiring diagrams and safety information.
+- Supports exactly 2 learned RF codes
+- One code is assigned to `FULL`
+- One code is assigned to `NORMAL`
+- Re-learning a state replaces the previously stored code for that same state
+- RF noise filtering is enabled:
+  - minimum bit length filter
+  - receive tolerance tightening
+  - cooldown to reduce repeated triggers
 
-## Software Setup
+### Webhook behavior
 
-### Prerequisites
+When a known RF code is received, the ESP32 sends:
 
-1. **PlatformIO**: Install via VS Code extension or CLI
-   - [Install PlatformIO IDE](https://platformio.org/install/ide?install=vscode)
-
-2. **USB Drivers**: Install CP2102 or CH340 drivers for your ESP32
-
-### Installation Steps
-
-> **⚠️ CRITICAL: TWO-STEP UPLOAD PROCESS**
-> 
-> ESP32 requires **TWO separate uploads**:
-> 1. **Filesystem** (web files) → `pio run --target uploadfs`
-> 2. **Firmware** (code) → `pio run --target upload`
-> 
-> **If webpage doesn't work**, you probably forgot step 1!
-> Error: `/littlefs/index.html does not exist` = filesystem not uploaded
-
-1. **Clone or download this project**
-
-2. **Configure Hardware Settings**
-   
-   Edit `include/config.h`:
-   - Set `RF_RECEIVER_PIN` to your GPIO pin
-   - Change `MDNS_HOSTNAME` if desired (default: `esp32-rf`)
-
-3. **Upload Filesystem (Web Interface) - STEP 1** ⚠️
-   
-   ```bash
-   pio run --target uploadfs
-   ```
-   
-   This uploads the web interface files (HTML/CSS/JS) to the ESP32's LittleFS filesystem.
-   
-   **DO THIS FIRST** or webpage won't work!
-
-4. **Compile and Upload Code - STEP 2** ⚠️
-   
-   ```bash
-   pio run --target upload
-   ```
-
-5. **Monitor Serial Output**
-   
-   ```bash
-   pio device monitor --baud 115200
-   ```
-
-## First-Time Setup
-
-### 1. WiFi Configuration
-
-1. After uploading, the ESP32 will create a WiFi access point:
-   - **SSID**: `ESP32-RF-Setup`
-   - **Password**: `12345678`
-
-2. Connect to this network with your phone or computer
-
-3. A captive portal should open automatically (or navigate to `192.168.4.1`)
-
-4. Enter your WiFi credentials and MQTT settings:
-   - **SSID**: Your WiFi network name
-   - **Password**: Your WiFi password
-   - **MQTT Server**: IP address of your MQTT broker (e.g., `192.168.1.100`)
-   - **MQTT Port**: Usually `1883`
-   - **MQTT User**: MQTT username (if required)
-   - **MQTT Password**: MQTT password (if required)
-
-5. Click "Save" - the ESP32 will connect to your WiFi
-
-### 2. Access Web Interface
-
-Once connected to WiFi, access the web interface at:
-- `http://esp32-rf.local` (recommended)
-- Or use the IP address shown in serial monitor
-
-### 3. Learn RF Codes
-
-1. Navigate to the RF Manager page via the web interface
-2. Enter a name for your RF device (e.g., "Doorbell", "Remote Button 1")
-3. Click "Start Learning Mode"
-4. Press the button on your RF transmitter within 30 seconds
-5. The code will be captured and saved automatically
-
-## Home Assistant Integration
-
-### Automatic Discovery (Recommended)
-
-The bridge automatically publishes MQTT discovery messages to Home Assistant.
-
-**Requirements:**
-- MQTT broker running (Mosquitto recommended)
-- Home Assistant MQTT integration configured
-
-**Setup:**
-
-1. Configure MQTT in Home Assistant (`configuration.yaml`):
-   ```yaml
-   mqtt:
-     broker: YOUR_MQTT_BROKER_IP
-     port: 1883
-     username: YOUR_USERNAME  # if required
-     password: YOUR_PASSWORD  # if required
-     discovery: true
-   ```
-
-2. Restart Home Assistant
-
-3. The RF triggers will automatically appear as binary sensors in Home Assistant
-
-4. Find them in:
-   - **Devices & Services** → **MQTT** → **ESP32-RF-Bridge**
-
-### RF Trigger Entities
-
-Each learned RF code creates a binary sensor entity:
-- **Entity Type**: `binary_sensor`
-- **Device Class**: Motion
-- **Auto-Off**: 2 seconds after trigger
-- **Icon**: mdi:remote
-
-### Using in Automations
-
-```yaml
-automation:
-  - alias: "RF Button Triggers Light"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.rf_doorbell
-        to: "on"
-    action:
-      - service: light.toggle
-        target:
-          entity_id: light.living_room
-```
-
-## Web Interface Features
-
-### RF Manager
-- Learn new RF codes with custom names
-- View all learned codes with details (code, bits, protocol)
-- Delete individual codes
-- Real-time signal detection indicator
-
-### System Information
-- WiFi network details
-- IP address and hostname
-- Signal strength indicator
-- MQTT connection status
-- Device uptime
-
-### Settings
-- Reset WiFi configuration
-- Reconfigure MQTT settings
-
-## MQTT Topics Structure
-
-### RF Trigger State Topics (Published by ESP32)
-```
-homeassistant/switch/esp32-rf/rf_0/state
-homeassistant/switch/esp32-rf/rf_1/state
-...
-```
-
-### Availability Topic
-```
-homeassistant/switch/esp32-rf/availability
-```
-
-### Discovery Topics
-```
-homeassistant/binary_sensor/esp32-rf_rf_0/config
-homeassistant/binary_sensor/esp32-rf_rf_1/config
-...
-```
-
-## API Endpoints
-
-The web server exposes REST API endpoints for control and troubleshooting:
-
-### RF Control
-
-#### GET /api/rf/status
-Get RF learning status and learned codes
-
-#### GET /api/rf/codes
-Get all learned RF codes
 ```json
 {
-  "codes": [
-    {"slot": 0, "name": "Doorbell", "code": 5592332, "bits": 24, "protocol": 1, "active": true},
-    {"slot": 1, "name": "Remote 1", "code": 1234567, "bits": 24, "protocol": 1, "active": true}
-  ],
-  "count": 2,
-  "max": 10
+  "deviceId": "esp32-bin-01",
+  "binId": "bin-01",
+  "fullnessPercent": "FULL"
 }
 ```
 
-#### POST /api/rf/learn
-Start RF learning mode (requires `name` parameter)
+or
 
-#### POST /api/rf/stop
-Stop RF learning mode
+```json
+{
+  "deviceId": "esp32-bin-01",
+  "binId": "bin-01",
+  "fullnessPercent": "NORMAL"
+}
+```
 
-#### POST /api/rf/delete
-Delete a learned RF code (requires `slot` parameter)
+Notes:
+- `deviceId` is configurable from the ESP admin page
+- `binId` is optional but recommended
+- `fullnessPercent` is intentionally used as the current web app field name, but its actual values are now `FULL` or `NORMAL`
 
-### Network Status
+### MQTT behavior
 
-#### GET /api/wifi
-Get WiFi connection information including uptime
+MQTT is still active.
 
-#### GET /api/mqtt
-Get MQTT connection status
+On RF trigger:
+- the matching MQTT state topic is published `ON`
+- after the configured trigger duration it is published `OFF`
 
-#### GET /api/mdns/status
-Get mDNS service status
+This preserves Home Assistant compatibility for future use.
 
-### Configuration & Admin
+## Hardware
 
-#### GET /api/admin/config
-Get admin configuration (requires authentication)
+Minimum device hardware:
+- ESP32 development board
+- 433 MHz RF receiver module such as SYN480R
+- power supply for the ESP32
+- 2 RF transmitters per trash bin
 
-#### POST /api/admin/mqtt
-Update MQTT credentials (requires authentication)
+Example RF receiver wiring:
 
-#### POST /api/reset
-Reset WiFi configuration and restart
+```text
+SYN480R Receiver -> ESP32
+VCC              -> 3.3V or 5V
+GND              -> GND
+DATA             -> GPIO 22
+```
 
-### Troubleshooting
+The RF input pin is controlled by [include/config.h](C:\Users\danie\Desktop\RF module\esp32_relay\include\config.h).
 
-#### POST /api/mqtt/rediscover
-Force MQTT discovery republish
+## Important Files
 
-#### POST /api/mdns/restart
-Restart mDNS service manually
+- [src/main.cpp](C:\Users\danie\Desktop\RF module\esp32_relay\src\main.cpp)
+  Main firmware logic
+- [include/config.h](C:\Users\danie\Desktop\RF module\esp32_relay\include\config.h)
+  Compile-time defaults
+- [data/admin.html](C:\Users\danie\Desktop\RF module\esp32_relay\data\admin.html)
+  Admin configuration UI
+- [data/rf_manager.html](C:\Users\danie\Desktop\RF module\esp32_relay\data\rf_manager.html)
+  RF learning UI
+- [platformio.ini](C:\Users\danie\Desktop\RF module\esp32_relay\platformio.ini)
+  Build config
 
-**Note**: Admin endpoints require HTTP Basic Authentication:
-- Username: `admin`
-- Password: `Solacepass@123`
+## Configurable Settings
 
-## Libraries Used
+### Compile-time defaults
 
-- WiFiManager (v2.0.17) - WiFi configuration portal
-- PubSubClient (v2.8.0) - MQTT client
-- ArduinoJson (v6.21.5) - JSON parsing
-- ESPAsyncWebServer (v1.2.4) - Async web server
-- AsyncTCP (v1.1.1) - Async TCP library
-- RCSwitch (v2.6.4) - RF receiver/transmitter
-- ESPmDNS (v2.0.0) - mDNS responder
-- LittleFS (v2.0.0) - Filesystem
-- Preferences (v2.0.0) - NVS storage
+Defined in [include/config.h](C:\Users\danie\Desktop\RF module\esp32_relay\include\config.h):
 
-## 📚 Documentation
+- `DEVICE_NAME`
+- `AP_NAME`
+- `AP_PASSWORD`
+- `MDNS_HOSTNAME`
+- `RF_RECEIVER_PIN`
+- `RF_TRIGGER_DURATION`
+- `RF_COOLDOWN_TIME`
+- `RF_MIN_BIT_LENGTH`
+- `DEFAULT_WEBHOOK_URL`
+- `DEFAULT_WEBHOOK_SECRET`
 
-### Getting Started
-- **README.md** (this file) - Main project overview and setup
-- `QUICK_REFERENCE.md` - Command reference and quick tips
-- `GET_STARTED.md` - Beginner-friendly setup guide
-- `SETUP_GUIDE.md` - Detailed installation instructions
+### Runtime settings stored in preferences
 
-### Hardware
-- `WIRING.md` - Wiring diagrams and safety information
+Configured from the ESP web UI and saved in NVS:
 
-### Features & Guides
-- `RF_RECEIVER_GUIDE.md` - Complete RF receiver setup and usage
-- `RF_IMPLEMENTATION_SUMMARY.md` - RF feature quick reference
-- `WIFI_RECONNECTION.md` - WiFi reconnection logic explained
-- `home_assistant_example.yaml` - Home Assistant configuration examples
+- WiFi credentials
+- MQTT server
+- MQTT port
+- MQTT username
+- MQTT password
+- MQTT hostname
+- Webhook URL
+- Webhook Device ID
+- Webhook Bin ID
+- Webhook Secret
+- Learned RF codes and their state mapping
 
-### Troubleshooting & Fixes
-- `TROUBLESHOOTING.md` - General troubleshooting guide
-- `CHANGELOG.md` - Complete history of issues and fixes
-- `MDNS_FIX.md` - mDNS .local URL issue resolution
+## Web UI
+
+After WiFi setup, the ESP serves a local web interface.
+
+Main URLs:
+
+```text
+Main page:      http://esp32-rf.local
+Admin page:     http://esp32-rf.local/solaceadmin
+RF manager:     http://esp32-rf.local/rf_manager.html
+```
+
+You can also use the device IP address instead of `.local`.
+
+### Admin page
+
+The admin page is used to configure:
+- MQTT connection details
+- MQTT hostname
+- Webhook URL
+- Webhook Device ID
+- Webhook Bin ID
+- Webhook Secret
+
+Current default webhook URL is already prefilled:
+
+```text
+https://trash-monitor-web.vercel.app/api/bin-event
+```
+
+### RF Manager page
+
+The RF Manager is used to learn exactly 2 signals:
+- `FULL`
+- `NORMAL`
+
+You no longer need to manually name RF signals.
+
+Internally the firmware labels them as:
+- `Full Sensor`
+- `Empty Sensor`
+
+## First-Time Setup
+
+### 1. Build requirements
+
+You need:
+- PlatformIO
+- USB serial drivers for your ESP32 board
+
+### 2. Upload order
+
+This project requires two uploads:
+
+1. Filesystem upload
+2. Firmware upload
+
+If you forget the filesystem upload, the web pages will not work.
+
+### 3. Upload commands
+
+If `pio` is available:
+
+```bash
+pio run --target uploadfs
+pio run --target upload
+pio device monitor --baud 115200
+```
+
+If you are using the Python-installed PlatformIO:
+
+```powershell
+& 'C:\Users\danie\AppData\Local\Programs\Python\Python312\python.exe' -m platformio run --target uploadfs
+& 'C:\Users\danie\AppData\Local\Programs\Python\Python312\python.exe' -m platformio run --target upload
+& 'C:\Users\danie\AppData\Local\Programs\Python\Python312\python.exe' -m platformio device monitor --baud 115200
+```
+
+### 4. WiFi setup
+
+On first boot or after reset:
+- the ESP creates an access point
+- connect to the AP
+- use the captive portal to configure WiFi and initial settings
+
+Default AP settings:
+
+```text
+SSID: ESP32-RF-Setup
+Password: 12345678
+```
+
+### 5. Admin page setup
+
+Open the admin page and configure:
+
+- MQTT settings
+- `Webhook URL`
+- `Webhook Device ID`
+- `Webhook Bin ID`
+- `Webhook Secret` if required
+
+Recommended values:
+
+```text
+Webhook URL:       https://trash-monitor-web.vercel.app/api/bin-event
+Webhook Device ID: esp32-bin-01
+Webhook Bin ID:    bin-01
+```
+
+Important:
+- `Webhook Device ID` must match a real `device_id` in the web app database
+- `Webhook Bin ID` should match the real bin record if you are using explicit bin IDs
+
+### 6. Learn RF codes
+
+Open the RF Manager page and do this:
+
+1. Select `FULL`
+2. Start learning
+3. Trigger the full transmitter
+4. Wait for success
+5. Select `NORMAL`
+6. Start learning
+7. Trigger the empty transmitter
+8. Wait for success
+
+After that, the ESP knows which RF code means which bin state.
+
+## End-to-End Test Procedure
+
+### Test the hosted web app first
+
+Make sure the hosted app is reachable:
+- [https://trash-monitor-web.vercel.app](https://trash-monitor-web.vercel.app)
+
+### Test webhook manually
+
+Example `FULL` test:
+
+```powershell
+curl.exe -X POST "https://trash-monitor-web.vercel.app/api/bin-event" -H "Content-Type: application/json" -d "{\"deviceId\":\"esp32-bin-02\",\"fullnessPercent\":\"FULL\"}"
+```
+
+Example `NORMAL` test:
+
+```powershell
+curl.exe -X POST "https://trash-monitor-web.vercel.app/api/bin-event" -H "Content-Type: application/json" -d "{\"deviceId\":\"esp32-bin-02\",\"fullnessPercent\":\"NORMAL\"}"
+```
+
+If the webhook secret is enabled again later:
+
+```powershell
+curl.exe -X POST "https://trash-monitor-web.vercel.app/api/bin-event" -H "Content-Type: application/json" -H "x-webhook-secret: YOUR_SECRET" -d "{\"deviceId\":\"esp32-bin-02\",\"fullnessPercent\":\"FULL\"}"
+```
+
+### Test from RF
+
+After learning both RF codes:
+
+1. Trigger `FULL` transmitter
+2. Watch the dashboard update to `FULL`
+3. Trigger `NORMAL` transmitter
+4. Watch the dashboard update to `NORMAL`
+
+## Webhook and Backend Notes
+
+The ESP does not create new bins automatically in the web app.
+
+This means:
+- changing `Webhook Device ID` on the ESP does not create a new dashboard entity by itself
+- a matching record must already exist in the hosted app database
+
+The hosted app updates an existing bin by:
+- `deviceId`
+- optionally `binId`
+
+## API Endpoints Exposed by the ESP
+
+### General
+
+- `GET /api/wifi`
+- `GET /api/mqtt`
+- `GET /api/mdns/status`
+- `POST /api/reset`
+- `POST /api/restart`
+- `POST /api/mdns/restart`
+- `POST /api/mqtt/rediscover`
+
+### Admin
+
+- `GET /api/admin/config`
+- `POST /api/admin/mqtt`
+
+Admin endpoints use HTTP Basic Auth:
+
+```text
+Username: admin
+Password: Solacepass@123
+```
+
+### RF
+
+- `GET /api/rf/codes`
+- `GET /api/rf/status`
+- `POST /api/rf/learn`
+- `POST /api/rf/stop`
+- `POST /api/rf/delete`
+- `POST /api/rf/clear`
+
+## MQTT Topics
+
+The current firmware still publishes MQTT topics like:
+
+```text
+homeassistant/switch/<mqtt_hostname>/availability
+homeassistant/switch/<mqtt_hostname>/rf_0/state
+homeassistant/switch/<mqtt_hostname>/rf_1/state
+```
+
+Home Assistant discovery is still published for the learned RF entries.
+
+## Current Defaults and Credentials
+
+### Access point
+
+```text
+SSID: ESP32-RF-Setup
+Password: 12345678
+```
+
+### Admin page
+
+```text
+Username: admin
+Password: Solacepass@123
+```
+
+### Hardcoded MQTT defaults
+
+These are only defaults and should normally be changed from the admin page:
+
+```text
+Server:   192.168.68.100
+Port:     1883
+User:     solacemqtt
+Password: solacepass
+Hostname: esp32-rf
+```
+
+### Default webhook
+
+```text
+Webhook URL: https://trash-monitor-web.vercel.app/api/bin-event
+```
+
+## Known Limitations
+
+- Flash usage is high, around 91%, so feature expansion should be done carefully
+- The firmware currently sends webhook state immediately on RF trigger, but it does not queue failed webhook deliveries for retry
+- MQTT support is still present even though the device is now primarily used for webhook reporting
+- The admin page still contains some wording from older relay-oriented versions and may be worth cleaning further if this becomes a production-facing maintenance tool
 
 ## Troubleshooting
 
-### ⚠️ Web Interface Not Loading (Most Common Issue)
+### Web interface does not load
 
-**Error in Serial Monitor:**
-```
+Most common cause: filesystem was not uploaded.
+
+Typical error:
+
+```text
 [E][vfs_api.cpp:105] open(): /littlefs/index.html does not exist
 ```
 
-**Solution**:
+Fix:
+
 ```bash
 pio run --target uploadfs
 ```
 
-### Cannot Access Web Interface
+### RF signal is not detected
 
-1. Check if filesystem is uploaded (see error above)
-2. Check serial monitor for IP address
-3. Try IP address instead of `.local` domain
-4. Ensure you're on the same network
+Check:
+- receiver wiring
+- power supply
+- correct GPIO in config
+- transmitter range
+- transmitter battery
 
-### MQTT Not Connecting
+### Dashboard does not update
 
-1. Verify MQTT broker is running
-2. Check MQTT credentials
-3. Ensure broker IP is correct
-4. Check firewall settings
+Check:
+- WiFi connected
+- webhook URL correct
+- `Webhook Device ID` matches a record in the web app
+- `Webhook Bin ID` matches if used
+- hosted web app is online
 
-### RF Code Not Capturing
+### MQTT is not connecting
 
-1. Verify receiver is connected to correct GPIO pin
-2. Check power supply (3.3V or 5V depending on module)
-3. Ensure transmitter is within range
-4. Try different transmitter buttons
+Check:
+- broker IP / hostname
+- port
+- username and password
+- same network reachability
 
-## Quick Reference
+### Learned wrong RF signal
 
-### Common Commands
+Use RF Manager:
+- delete the wrong entry
+- relearn the correct state
 
-```bash
-# Full Setup (first time or after major changes)
-pio run --target uploadfs    # Upload web files
-pio run --target upload       # Upload firmware
+Because there are only 2 RF slots now, relearning `FULL` replaces the old `FULL` signal, and relearning `NORMAL` replaces the old `NORMAL` signal.
 
-# Monitor Serial Output
-pio device monitor --baud 115200
+## Recommended Deployment Pattern
 
-# Clean Build (if issues)
-pio run --target clean
-pio run --target uploadfs
-pio run --target upload
+For each physical trash bin:
+
+1. Prepare one ESP32 receiver unit
+2. Configure unique values:
+   - `Webhook Device ID`
+   - `Webhook Bin ID`
+3. Learn:
+   - one `FULL` transmitter
+   - one `NORMAL` transmitter
+4. Test both transitions against the hosted app
+
+Example:
+
+```text
+Webhook Device ID: esp32-bin-07
+Webhook Bin ID:    bin-07
+RF signal 1:       FULL
+RF signal 2:       NORMAL
 ```
 
-### Web Interface URLs
+## Useful Repos
 
-```
-Main Interface:     http://esp32-rf.local
-                    http://192.168.x.x
+Firmware repo:
+- this project
 
-Admin Panel:        http://esp32-rf.local/solaceadmin
-                    Username: admin
-                    Password: Solacepass@123
+Hosted dashboard repo:
+- `trash-monitor-web`
 
-RF Manager:         http://esp32-rf.local/rf_manager.html
-```
+Production dashboard:
+- [https://trash-monitor-web.vercel.app](https://trash-monitor-web.vercel.app)
 
-### Default Credentials
+## Maintenance Notes
 
-**WiFi AP Mode** (if not configured):
-- SSID: `ESP32-RF-Setup`
-- Password: `12345678`
+If someone continues this project later, the most important current assumptions are:
 
-**MQTT** (defaults, changeable via web):
-- Broker: `192.168.68.100:1883`
-- User: `solacemqtt`
-- Password: `solacepass`
+- one ESP32 handles one physical bin
+- one bin uses two RF transmitters
+- webhook reporting is the main operational path
+- MQTT remains enabled for future Home Assistant integration
+- the hosted app expects existing bin/device records and does not auto-create them from the ESP
 
-**Admin Panel**:
-- Username: `admin`
-- Password: `Solacepass@123`
+## Build Verification
 
-## Version History
-
-- **v2.0.1** - RF false-trigger reduction (Current)
-  - Cooldown period (3 s) between triggers for the same RF code to debounce repeats
-  - Minimum bit-length filter to reject short/noisy signals
-  - Stricter receive tolerance (40%) to reduce false positives from electrical noise
-  - Serial debug logging for all received RF signals (`[RF-DEBUG]`) to help diagnose issues
-
-- **v2.0.0** - RF-to-MQTT Bridge
-  - Complete refactor to RF-only device
-  - Removed all relay functionality
-  - Multi-code RF learning support (up to 10 codes)
-  - Each RF code creates a Home Assistant binary sensor
-  - Custom naming for RF codes
-  - Streamlined web interface for RF management
-  - Reduced code size and memory footprint
-  - Updated preferences namespace to `rf-bridge`
-
-- **v1.4.1** - Stability improvements for weak WiFi
-  - Disabled ESP32's internal auto-reconnect
-  - Added watchdog feed during MQTT operations
-  - Improved system stability
-
-- **v1.4.0** - Safety & Uptime
-  - Removed ESP.restart() on WiFi failure
-  - Added uptime display on webpage
-  - Background WiFi reconnection
-
-- **v1.3.0** - Smart Reconnection System
-  - Smart WiFi Reconnection with AP fallback
-  - Smart MQTT Reconnection with Exponential Backoff
-  - Credential error detection
-  - WiFiManager fix for MQTT credentials
-
-## License
-
-This project is open source. Feel free to modify and distribute.
-
-## Support
-
-For issues and questions:
-1. **Read CHANGELOG.md** - Every issue and fix is documented there
-2. Check the troubleshooting section above
-3. Review serial monitor output
-4. Verify hardware connections
+The current firmware state in this workspace was compiled successfully with PlatformIO after the webhook and FULL/NORMAL RF changes.

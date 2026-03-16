@@ -11,6 +11,10 @@
 #define MQTT_TOPIC_PREFIX "homeassistant/switch/"
 #define MQTT_DISCOVERY_PREFIX "homeassistant"
 
+// Webhook Configuration
+#define DEFAULT_WEBHOOK_URL "https://trash-monitor-web.vercel.app/api/bin-event"
+#define DEFAULT_WEBHOOK_SECRET ""
+
 // Web Server
 #define WEB_SERVER_PORT 80
 

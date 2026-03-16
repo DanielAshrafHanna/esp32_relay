@@ -273,6 +273,29 @@
                 <small style="color: #666;">Used for MQTT topics (e.g., homeassistant/switch/<strong>hostname</strong>/relay1)</small>
             </div>
 
+            <div class="form-group">
+                <label for="webhook-url">Webhook URL</label>
+                <input type="text" id="webhook-url" value="https://trash-monitor-web.vercel.app/api/bin-event" placeholder="https://trash-monitor-web.vercel.app/api/bin-event" class="form-input">
+            </div>
+
+            <div class="form-group">
+                <label for="webhook-device-id">Webhook Device ID</label>
+                <input type="text" id="webhook-device-id" placeholder="esp32-bin-01" class="form-input">
+                <small style="color: #666;">Used when sending FULL alerts to the online dashboard</small>
+            </div>
+
+            <div class="form-group">
+                <label for="webhook-bin-id">Webhook Bin ID</label>
+                <input type="text" id="webhook-bin-id" placeholder="bin-01" class="form-input">
+                <small style="color: #666;">Optional explicit bin identifier for the online dashboard</small>
+            </div>
+
+            <div class="form-group">
+                <label for="webhook-secret">Webhook Secret</label>
+                <input type="password" id="webhook-secret" placeholder="********" class="form-input">
+                <small style="color: #666;">Leave unchanged to keep current webhook secret</small>
+            </div>
+
             <button class="btn-save" onclick="saveMQTT()" style="margin-bottom: 30px;">💾 Save MQTT Settings</button>
         </div>
 
@@ -344,6 +367,10 @@
                 document.getElementById('mqtt-user').value = data.mqtt_user || '';
                 document.getElementById('mqtt-password').value = data.mqtt_password || '';
                 document.getElementById('mqtt-hostname').value = data.mqtt_hostname || 'esp32-relay';
+                document.getElementById('webhook-url').value = data.webhook_url || '';
+                document.getElementById('webhook-device-id').value = data.webhook_device_id || data.mqtt_hostname || 'esp32-relay';
+                document.getElementById('webhook-bin-id').value = data.webhook_bin_id || '';
+                document.getElementById('webhook-secret').value = data.webhook_secret || '';
                 
                 // Select the current relay count option
                 const option = document.querySelector(`.option-card[data-value="${currentConfig}"]`);
@@ -411,6 +438,10 @@
             const mqttUser = document.getElementById('mqtt-user').value.trim();
             const mqttPassword = document.getElementById('mqtt-password').value;
             const mqttHostname = document.getElementById('mqtt-hostname').value.trim() || 'esp32-relay';
+            const webhookUrl = document.getElementById('webhook-url').value.trim();
+            const webhookDeviceId = document.getElementById('webhook-device-id').value.trim() || mqttHostname;
+            const webhookBinId = document.getElementById('webhook-bin-id').value.trim();
+            const webhookSecret = document.getElementById('webhook-secret').value;
 
             if (!mqttServer || !mqttPort) {
                 alert('Please fill in MQTT server and port');
@@ -433,7 +464,11 @@
                         mqtt_port: mqttPort,
                         mqtt_user: mqttUser,
                         mqtt_password: mqttPassword,
-                        mqtt_hostname: mqttHostname
+                        mqtt_hostname: mqttHostname,
+                        webhook_url: webhookUrl,
+                        webhook_device_id: webhookDeviceId,
+                        webhook_bin_id: webhookBinId,
+                        webhook_secret: webhookSecret
                     })
                 });
 

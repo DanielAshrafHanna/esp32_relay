@@ -8,6 +8,8 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <RCSwitch.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include "config.h"
 
 // Global objects
@@ -23,15 +25,20 @@ char mqtt_port[6] = "1883";
 char mqtt_user[40] = "solacemqtt";
 char mqtt_password[40] = "solacepass";
 char mqtt_hostname[40] = "esp32-rf";  // Configurable MQTT hostname for topics
+char webhook_url[160] = DEFAULT_WEBHOOK_URL;
+char webhook_secret[80] = DEFAULT_WEBHOOK_SECRET;
+char webhook_device_id[40] = "esp32-rf";
+char webhook_bin_id[40] = "";
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
 
 // RF Receiver settings - Multiple codes support
-#define MAX_RF_CODES 10
+#define MAX_RF_CODES 2
 
 struct RFCode {
     char name[32];              // User-defined name
+    char state[8];              // FULL or NORMAL
     unsigned long code;         // RF code value
     unsigned int bitLength;     // Bit length
     unsigned int protocol;      // Protocol
@@ -44,6 +51,7 @@ int rfCodeCount = 0;
 bool rfLearningMode = false;
 int rfLearningSlot = -1;        // Which slot we're learning for
 char pendingRFName[32] = "";    // Name for code being learned
+char pendingRFState[8] = "FULL";
 
 // MQTT Discovery management
 bool discoveryPublished = false;  // Only publish once per boot unless manually triggered
@@ -90,10 +98,12 @@ void restoreSettings();
 void setupRFReceiver();
 void checkRFSignal();
 void publishRFTriggerState(int slot);
+bool sendWebhookState(const char* state, int slot);
 void saveRFCodes();
 void restoreRFCodes();
-int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsigned int protocol);
+int addRFCode(const char* name, const char* state, unsigned long code, unsigned int bitLength, unsigned int protocol);
 void deleteRFCode(int slot);
+int findRFCodeByState(const char* state);
 bool shouldSaveConfig = false;
 
 void setup() {
@@ -307,12 +317,20 @@ void setupWiFi() {
     WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, 40);
     WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, 40);
     WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, 40);
+    WiFiManagerParameter custom_webhook_url("webhook_url", "Webhook URL", webhook_url, 160);
+    WiFiManagerParameter custom_webhook_secret("webhook_secret", "Webhook Secret", webhook_secret, 80);
+    WiFiManagerParameter custom_webhook_device_id("webhook_device_id", "Webhook Device ID", webhook_device_id, 40);
+    WiFiManagerParameter custom_webhook_bin_id("webhook_bin_id", "Webhook Bin ID", webhook_bin_id, 40);
     
     wifiManager.addParameter(&custom_mqtt_server);
     wifiManager.addParameter(&custom_mqtt_port);
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_password);
     wifiManager.addParameter(&custom_mqtt_hostname);
+    wifiManager.addParameter(&custom_webhook_url);
+    wifiManager.addParameter(&custom_webhook_secret);
+    wifiManager.addParameter(&custom_webhook_device_id);
+    wifiManager.addParameter(&custom_webhook_bin_id);
     
     wifiManager.setSaveConfigCallback(saveConfigCallback);
     wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
@@ -341,9 +359,19 @@ void setupWiFi() {
         String new_user = custom_mqtt_user.getValue();
         String new_password = custom_mqtt_password.getValue();
         String new_hostname = custom_mqtt_hostname.getValue();
+        String new_webhook_url = custom_webhook_url.getValue();
+        String new_webhook_secret = custom_webhook_secret.getValue();
+        String new_webhook_device_id = custom_webhook_device_id.getValue();
+        String new_webhook_bin_id = custom_webhook_bin_id.getValue();
         
         if (new_hostname.length() == 0) {
             new_hostname = "esp32-rf";
+        }
+        if (new_webhook_url.length() == 0) {
+            new_webhook_url = DEFAULT_WEBHOOK_URL;
+        }
+        if (new_webhook_device_id.length() == 0) {
+            new_webhook_device_id = new_hostname;
         }
         
         preferences.begin("rf-bridge", false);
@@ -352,6 +380,10 @@ void setupWiFi() {
         preferences.putString("mqtt_user", new_user);
         preferences.putString("mqtt_pass", new_password);
         preferences.putString("mqtt_hostname", new_hostname);
+        preferences.putString("webhook_url", new_webhook_url);
+        preferences.putString("webhook_secret", new_webhook_secret);
+        preferences.putString("webhook_device_id", new_webhook_device_id);
+        preferences.putString("webhook_bin_id", new_webhook_bin_id);
         preferences.end();
         
         new_server.toCharArray(mqtt_server, 40);
@@ -359,16 +391,26 @@ void setupWiFi() {
         new_user.toCharArray(mqtt_user, 40);
         new_password.toCharArray(mqtt_password, 40);
         new_hostname.toCharArray(mqtt_hostname, 40);
+        new_webhook_url.toCharArray(webhook_url, 160);
+        new_webhook_secret.toCharArray(webhook_secret, 80);
+        new_webhook_device_id.toCharArray(webhook_device_id, 40);
+        new_webhook_bin_id.toCharArray(webhook_bin_id, 40);
         
         Serial.println("[WiFiManager] MQTT settings saved:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
         Serial.printf("  User: %s\n", mqtt_user);
         Serial.printf("  Hostname: %s\n", mqtt_hostname);
+        Serial.printf("  Webhook URL: %s\n", webhook_url);
+        Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
+        Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
     } else {
         Serial.println("[WiFiManager] Using existing MQTT settings:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
         Serial.printf("  User: %s\n", mqtt_user);
         Serial.printf("  Hostname: %s\n", mqtt_hostname);
+        Serial.printf("  Webhook URL: %s\n", webhook_url);
+        Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
+        Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
     }
 }
 
@@ -577,7 +619,7 @@ void setupWebServer() {
     
     // API: Get WiFi status
     server.on("/api/wifi/status", HTTP_GET, [](AsyncWebServerRequest *request) {
-        StaticJsonDocument<512> doc;
+        StaticJsonDocument<768> doc;
         
         doc["connected"] = (WiFi.status() == WL_CONNECTED);
         doc["ap_mode"] = apModeActive;
@@ -599,7 +641,7 @@ void setupWebServer() {
     // API: Reconfigure WiFi
     server.on("/api/wifi/reconfigure", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
         [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
-            StaticJsonDocument<512> doc;
+            StaticJsonDocument<768> doc;
             DeserializationError error = deserializeJson(doc, (char*)data);
             
             if (error) {
@@ -663,6 +705,10 @@ void setupWebServer() {
         doc["mqtt_user"] = mqtt_user;
         doc["mqtt_hostname"] = mqtt_hostname;
         doc["mqtt_password"] = "••••••••";
+        doc["webhook_url"] = webhook_url;
+        doc["webhook_device_id"] = webhook_device_id;
+        doc["webhook_bin_id"] = webhook_bin_id;
+        doc["webhook_secret"] = strlen(webhook_secret) > 0 ? "********" : "";
         doc["rf_codes"] = rfCodeCount;
         
         String output;
@@ -690,6 +736,10 @@ void setupWebServer() {
             String new_user = doc["mqtt_user"].as<String>();
             String new_password = doc["mqtt_password"].as<String>();
             String new_hostname = doc["mqtt_hostname"].as<String>();
+            String new_webhook_url = doc["webhook_url"].as<String>();
+            String new_webhook_secret = doc["webhook_secret"].as<String>();
+            String new_webhook_device_id = doc["webhook_device_id"].as<String>();
+            String new_webhook_bin_id = doc["webhook_bin_id"].as<String>();
             
             if (new_server.length() == 0 || new_port < 1 || new_port > 65535) {
                 request->send(400, "application/json", "{\"error\":\"Invalid MQTT settings\"}");
@@ -699,31 +749,52 @@ void setupWebServer() {
             if (new_hostname.length() == 0 || new_hostname.length() > 39) {
                 new_hostname = "esp32-rf";
             }
+            if (new_webhook_url.length() == 0 || new_webhook_url.length() > 159) {
+                new_webhook_url = DEFAULT_WEBHOOK_URL;
+            }
+            if (new_webhook_device_id.length() == 0 || new_webhook_device_id.length() > 39) {
+                new_webhook_device_id = new_hostname;
+            }
             
             preferences.begin("rf-bridge", false);
             preferences.putString("mqtt_server", new_server);
             preferences.putString("mqtt_port", String(new_port));
             preferences.putString("mqtt_user", new_user);
             preferences.putString("mqtt_hostname", new_hostname);
+            preferences.putString("webhook_url", new_webhook_url);
+            preferences.putString("webhook_device_id", new_webhook_device_id);
+            preferences.putString("webhook_bin_id", new_webhook_bin_id);
             
             if (new_password != "••••••••") {
                 preferences.putString("mqtt_pass", new_password);
             }
             
+            if (new_webhook_secret != "********") {
+                preferences.putString("webhook_secret", new_webhook_secret);
+            }
             preferences.end();
             
             new_server.toCharArray(mqtt_server, 40);
             String(new_port).toCharArray(mqtt_port, 6);
             new_user.toCharArray(mqtt_user, 40);
             new_hostname.toCharArray(mqtt_hostname, 40);
+            new_webhook_url.toCharArray(webhook_url, 160);
+            new_webhook_device_id.toCharArray(webhook_device_id, 40);
+            new_webhook_bin_id.toCharArray(webhook_bin_id, 40);
             if (new_password != "••••••••") {
                 new_password.toCharArray(mqtt_password, 40);
             }
             
+            if (new_webhook_secret != "********") {
+                new_webhook_secret.toCharArray(webhook_secret, 80);
+            }
             Serial.println("[Admin] MQTT settings updated");
             Serial.printf("  Server: %s:%d\n", mqtt_server, new_port);
             Serial.printf("  User: %s\n", mqtt_user);
             Serial.printf("  Hostname: %s\n", mqtt_hostname);
+            Serial.printf("  Webhook URL: %s\n", webhook_url);
+            Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
+            Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
             
             request->send(200, "application/json", "{\"success\":true}");
             
@@ -745,6 +816,7 @@ void setupWebServer() {
                 JsonObject code = codes.createNestedObject();
                 code["slot"] = i;
                 code["name"] = rfCodes[i].name;
+                code["state"] = rfCodes[i].state;
                 code["code"] = String(rfCodes[i].code);
                 code["bit_length"] = rfCodes[i].bitLength;
                 code["protocol"] = rfCodes[i].protocol;
@@ -771,27 +843,24 @@ void setupWebServer() {
     
     // API: Start RF learning mode
     server.on("/api/rf/learn", HTTP_POST, [](AsyncWebServerRequest *request) {
-        if (rfCodeCount >= MAX_RF_CODES) {
-            request->send(400, "application/json", "{\"error\":\"Maximum codes reached\"}");
+        String state = request->hasParam("state", true)
+            ? request->getParam("state", true)->value()
+            : "FULL";
+        state.toUpperCase();
+        if (state != "FULL" && state != "NORMAL") {
+            request->send(400, "application/json", "{\"error\":\"State must be FULL or NORMAL\"}");
             return;
         }
-        
-        if (!request->hasParam("name", true)) {
-            request->send(400, "application/json", "{\"error\":\"Name parameter required\"}");
-            return;
-        }
-        
-        String name = request->getParam("name", true)->value();
-        if (name.length() == 0 || name.length() >= 32) {
-            request->send(400, "application/json", "{\"error\":\"Name must be 1-31 characters\"}");
-            return;
-        }
+
+        String name = state == "FULL" ? "Full Sensor" : "Empty Sensor";
         
         strncpy(pendingRFName, name.c_str(), sizeof(pendingRFName) - 1);
         pendingRFName[sizeof(pendingRFName) - 1] = '\0';
+        strncpy(pendingRFState, state.c_str(), sizeof(pendingRFState) - 1);
+        pendingRFState[sizeof(pendingRFState) - 1] = '\0';
         
         rfLearningMode = true;
-        Serial.printf("[RF] Learning mode activated for '%s' - press transmitter button\n", pendingRFName);
+        Serial.printf("[RF] Learning mode activated for '%s' [%s] - press transmitter button\n", pendingRFName, pendingRFState);
         request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode activated\"}");
     });
     
@@ -800,6 +869,8 @@ void setupWebServer() {
         rfLearningMode = false;
         rfLearningSlot = -1;
         pendingRFName[0] = '\0';
+        strncpy(pendingRFState, "FULL", sizeof(pendingRFState) - 1);
+        pendingRFState[sizeof(pendingRFState) - 1] = '\0';
         Serial.println("[RF] Learning mode deactivated");
         request->send(200, "application/json", "{\"success\":true,\"message\":\"Learning mode deactivated\"}");
     });
@@ -914,10 +985,22 @@ void restoreSettings() {
         saved_pass.toCharArray(mqtt_password, 40);
         String saved_hostname = preferences.getString("mqtt_hostname", "esp32-rf");
         saved_hostname.toCharArray(mqtt_hostname, 40);
+        String saved_webhook_url = preferences.getString("webhook_url", DEFAULT_WEBHOOK_URL);
+        saved_webhook_url.toCharArray(webhook_url, 160);
+        String saved_webhook_secret = preferences.getString("webhook_secret", DEFAULT_WEBHOOK_SECRET);
+        saved_webhook_secret.toCharArray(webhook_secret, 80);
+        String saved_webhook_device_id = preferences.getString("webhook_device_id", saved_hostname);
+        saved_webhook_device_id.toCharArray(webhook_device_id, 40);
+        String saved_webhook_bin_id = preferences.getString("webhook_bin_id", "");
+        saved_webhook_bin_id.toCharArray(webhook_bin_id, 40);
         Serial.println("[Storage] MQTT settings loaded from preferences");
         Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
+        Serial.printf("[Storage] Webhook device ID: %s\n", webhook_device_id);
+        Serial.printf("[Storage] Webhook bin ID: %s\n", webhook_bin_id);
     } else {
         Serial.println("[Storage] Using hardcoded MQTT settings");
+        strncpy(webhook_device_id, mqtt_hostname, sizeof(webhook_device_id) - 1);
+        webhook_device_id[sizeof(webhook_device_id) - 1] = '\0';
     }
     
     preferences.end();
@@ -954,18 +1037,20 @@ void checkRFSignal() {
         }
         
         if (rfLearningMode) {
-            int newSlot = addRFCode(pendingRFName, receivedCode, bitLength, protocol);
+            int newSlot = addRFCode(pendingRFName, pendingRFState, receivedCode, bitLength, protocol);
             rfLearningMode = false;
             
             if (newSlot >= 0) {
-                Serial.printf("[RF] Code learned '%s': %lu (bit: %d, protocol: %d) in slot %d\n", 
-                             pendingRFName, receivedCode, bitLength, protocol, newSlot);
+                Serial.printf("[RF] Code learned '%s' [%s]: %lu (bit: %d, protocol: %d) in slot %d\n", 
+                             pendingRFName, pendingRFState, receivedCode, bitLength, protocol, newSlot);
                 Serial.println("[RF] Use /api/mqtt/rediscover to update HA entities, or reboot.");
             } else {
                 Serial.println("[RF] ERROR: Failed to add code (array full)");
             }
             
             pendingRFName[0] = '\0';
+            strncpy(pendingRFState, "FULL", sizeof(pendingRFState) - 1);
+            pendingRFState[sizeof(pendingRFState) - 1] = '\0';
         }
         else {
             unsigned long currentTime = millis();
@@ -992,8 +1077,8 @@ void checkRFSignal() {
                         break;
                     }
                     
-                    Serial.printf("[RF] Trigger detected '%s': %lu (slot %d)\n", 
-                                 rfCodes[i].name, receivedCode, i);
+                    Serial.printf("[RF] Trigger detected '%s' [%s]: %lu (slot %d)\n", 
+                                 rfCodes[i].name, rfCodes[i].state, receivedCode, i);
                     
                     rfCodes[i].lastTrigger = currentTime;
                     publishRFTriggerState(i);
@@ -1012,13 +1097,16 @@ void checkRFSignal() {
 }
 
 void publishRFTriggerState(int slot) {
-    if (!mqttClient.connected()) return;
     if (slot < 0 || slot >= MAX_RF_CODES || !rfCodes[slot].active) return;
     
     String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(slot) + "/state";
     
-    mqttClient.publish(topic.c_str(), "ON", true);
-    Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
+    if (mqttClient.connected()) {
+        mqttClient.publish(topic.c_str(), "ON", true);
+        Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
+    }
+
+    sendWebhookState(rfCodes[slot].state, slot);
     
     unsigned long start = millis();
     while (millis() - start < RF_TRIGGER_DURATION) {
@@ -1027,8 +1115,71 @@ void publishRFTriggerState(int slot) {
         delay(10);
     }
     
-    mqttClient.publish(topic.c_str(), "OFF", true);
-    Serial.printf("[MQTT] RF '%s' (slot %d): OFF\n", rfCodes[slot].name, slot);
+    if (mqttClient.connected()) {
+        mqttClient.publish(topic.c_str(), "OFF", true);
+        Serial.printf("[MQTT] RF '%s' (slot %d): OFF\n", rfCodes[slot].name, slot);
+    }
+}
+
+bool sendWebhookState(const char* state, int slot) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[Webhook] Skipped - WiFi not connected");
+        return false;
+    }
+
+    if (strlen(webhook_url) == 0) {
+        Serial.println("[Webhook] Skipped - webhook URL not configured");
+        return false;
+    }
+
+    String payloadDeviceId = strlen(webhook_device_id) > 0 ? webhook_device_id : mqtt_hostname;
+    StaticJsonDocument<256> doc;
+    doc["deviceId"] = payloadDeviceId;
+    doc["fullnessPercent"] = state;
+    if (strlen(webhook_bin_id) > 0) {
+        doc["binId"] = webhook_bin_id;
+    }
+
+    String payload;
+    serializeJson(doc, payload);
+
+    int httpCode = -1;
+    if (String(webhook_url).startsWith("https://")) {
+        WiFiClientSecure client;
+        client.setInsecure();
+        HTTPClient http;
+        http.setTimeout(5000);
+
+        if (http.begin(client, webhook_url)) {
+            http.addHeader("Content-Type", "application/json");
+            if (strlen(webhook_secret) > 0) {
+                http.addHeader("x-webhook-secret", webhook_secret);
+            }
+            httpCode = http.POST(payload);
+            http.end();
+        }
+    } else {
+        WiFiClient client;
+        HTTPClient http;
+        http.setTimeout(5000);
+
+        if (http.begin(client, webhook_url)) {
+            http.addHeader("Content-Type", "application/json");
+            if (strlen(webhook_secret) > 0) {
+                http.addHeader("x-webhook-secret", webhook_secret);
+            }
+            httpCode = http.POST(payload);
+            http.end();
+        }
+    }
+
+    if (httpCode > 0 && httpCode < 400) {
+        Serial.printf("[Webhook] Sent %s for '%s' (HTTP %d)\n", state, payloadDeviceId.c_str(), httpCode);
+        return true;
+    }
+
+    Serial.printf("[Webhook] Failed for '%s' (HTTP %d)\n", payloadDeviceId.c_str(), httpCode);
+    return false;
 }
 
 void saveRFCodes() {
@@ -1049,13 +1200,22 @@ void restoreRFCodes() {
     size_t len = preferences.getBytesLength("rf_codes");
     if (len == sizeof(rfCodes)) {
         preferences.getBytes("rf_codes", rfCodes, sizeof(rfCodes));
-        rfCodeCount = preferences.getInt("rf_count", 0);
+        rfCodeCount = 0;
+        for (int i = 0; i < MAX_RF_CODES; i++) {
+            if (rfCodes[i].active) {
+                rfCodeCount++;
+            }
+        }
         
         if (rfCodeCount > 0) {
             Serial.printf("[RF] Restored %d codes from preferences\n", rfCodeCount);
             for (int i = 0; i < MAX_RF_CODES; i++) {
                 if (rfCodes[i].active) {
-                    Serial.printf("  [%d] '%s': %lu\n", i, rfCodes[i].name, rfCodes[i].code);
+                    if (strlen(rfCodes[i].state) == 0) {
+                        strncpy(rfCodes[i].state, "FULL", sizeof(rfCodes[i].state) - 1);
+                        rfCodes[i].state[sizeof(rfCodes[i].state) - 1] = '\0';
+                    }
+                    Serial.printf("  [%d] '%s' [%s]: %lu\n", i, rfCodes[i].name, rfCodes[i].state, rfCodes[i].code);
                 }
             }
         }
@@ -1064,9 +1224,20 @@ void restoreRFCodes() {
     preferences.end();
 }
 
-int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsigned int protocol) {
-    if (rfCodeCount >= MAX_RF_CODES) {
-        return -1;
+int addRFCode(const char* name, const char* state, unsigned long code, unsigned int bitLength, unsigned int protocol) {
+    int existingStateSlot = findRFCodeByState(state);
+    if (existingStateSlot >= 0) {
+        strncpy(rfCodes[existingStateSlot].name, name, sizeof(rfCodes[existingStateSlot].name) - 1);
+        rfCodes[existingStateSlot].name[sizeof(rfCodes[existingStateSlot].name) - 1] = '\0';
+        strncpy(rfCodes[existingStateSlot].state, state, sizeof(rfCodes[existingStateSlot].state) - 1);
+        rfCodes[existingStateSlot].state[sizeof(rfCodes[existingStateSlot].state) - 1] = '\0';
+        rfCodes[existingStateSlot].code = code;
+        rfCodes[existingStateSlot].bitLength = bitLength;
+        rfCodes[existingStateSlot].protocol = protocol;
+        rfCodes[existingStateSlot].lastTrigger = 0;
+
+        saveRFCodes();
+        return existingStateSlot;
     }
     
     for (int i = 0; i < MAX_RF_CODES; i++) {
@@ -1074,6 +1245,8 @@ int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsi
             rfCodes[i].active = true;
             strncpy(rfCodes[i].name, name, sizeof(rfCodes[i].name) - 1);
             rfCodes[i].name[sizeof(rfCodes[i].name) - 1] = '\0';
+            strncpy(rfCodes[i].state, state, sizeof(rfCodes[i].state) - 1);
+            rfCodes[i].state[sizeof(rfCodes[i].state) - 1] = '\0';
             rfCodes[i].code = code;
             rfCodes[i].bitLength = bitLength;
             rfCodes[i].protocol = protocol;
@@ -1085,6 +1258,16 @@ int addRFCode(const char* name, unsigned long code, unsigned int bitLength, unsi
         }
     }
     
+    return -1;
+}
+
+int findRFCodeByState(const char* state) {
+    for (int i = 0; i < MAX_RF_CODES; i++) {
+        if (rfCodes[i].active && strcmp(rfCodes[i].state, state) == 0) {
+            return i;
+        }
+    }
+
     return -1;
 }
 
