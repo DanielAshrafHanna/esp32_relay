@@ -76,6 +76,7 @@ Notes:
 - `deviceId` is configurable from the ESP admin page
 - `deviceId` is automatically normalized to lowercase with spaces converted to hyphens
 - `fullnessPercent` is intentionally used as the current web app field name, but its actual values are now `FULL` or `NORMAL`
+- if `Webhook Secret` is configured, the firmware sends it in the `x-webhook-secret` header
 
 ### MQTT behavior
 
@@ -261,6 +262,7 @@ Important:
 - `Webhook Device ID` must match a real `deviceId` in the web app database
 - if you type spaces in the ESP admin page, the firmware saves the value in normalized form
 - example: `Dany Test` becomes `dany-test`
+- if the web app has `WEBHOOK_SECRET` enabled, the same value must be entered in `Webhook Secret` on the device
 
 ### 6. Learn RF codes
 
@@ -302,6 +304,23 @@ If the webhook secret is enabled again later:
 
 ```powershell
 curl.exe -X POST "https://trash-monitor-web.vercel.app/api/bin-event" -H "Content-Type: application/json" -H "x-webhook-secret: YOUR_SECRET" -d "{\"deviceId\":\"esp32-bin-02\",\"fullnessPercent\":\"FULL\"}"
+```
+
+### Re-enable secured webhooks
+
+If webhook authentication is re-enabled on the hosted app:
+
+1. Add `WEBHOOK_SECRET` in Vercel
+2. Redeploy the web app
+3. Open each device admin page
+4. Enter the same value in `Webhook Secret`
+5. Save the settings
+6. Test one `FULL` and one `NORMAL` event
+
+If the secret does not match, the hosted app will reject the request with:
+
+```json
+{"error":"Unauthorized"}
 ```
 
 ### Test from RF
@@ -443,6 +462,7 @@ Check:
 - WiFi connected
 - webhook URL correct
 - `Webhook Device ID` matches a record in the web app
+- `Webhook Secret` matches the `WEBHOOK_SECRET` value in Vercel if auth is enabled
 - hosted web app is online
 
 ### MQTT is not connecting
