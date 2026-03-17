@@ -281,7 +281,7 @@
             <div class="form-group">
                 <label for="webhook-device-id">Webhook Device ID</label>
                 <input type="text" id="webhook-device-id" placeholder="esp32-bin-01" class="form-input">
-                <small style="color: #666;">Used when sending FULL alerts to the online dashboard</small>
+                <small style="color: #666;">Must match the Device ID in the web app. Spaces are automatically converted to hyphens.</small>
             </div>
 
             <div class="form-group">
@@ -351,6 +351,10 @@
 
     <script>
         let currentConfig = 16;
+
+        function normalizeDeviceId(value) {
+            return value.trim().toLowerCase().replace(/\s+/g, '-');
+        }
 
         // Load current configuration
         async function loadConfig() {
@@ -439,7 +443,7 @@
             const mqttPassword = document.getElementById('mqtt-password').value;
             const mqttHostname = document.getElementById('mqtt-hostname').value.trim() || 'esp32-relay';
             const webhookUrl = document.getElementById('webhook-url').value.trim();
-            const webhookDeviceId = document.getElementById('webhook-device-id').value.trim() || mqttHostname;
+            const webhookDeviceId = normalizeDeviceId(document.getElementById('webhook-device-id').value) || normalizeDeviceId(mqttHostname);
             const webhookBinId = document.getElementById('webhook-bin-id').value.trim();
             const webhookSecret = document.getElementById('webhook-secret').value;
 

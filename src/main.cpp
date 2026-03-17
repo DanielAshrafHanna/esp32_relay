@@ -104,7 +104,20 @@ void restoreRFCodes();
 int addRFCode(const char* name, const char* state, unsigned long code, unsigned int bitLength, unsigned int protocol);
 void deleteRFCode(int slot);
 int findRFCodeByState(const char* state);
+String normalizeDeviceId(String value);
 bool shouldSaveConfig = false;
+
+String normalizeDeviceId(String value) {
+    value.trim();
+    value.toLowerCase();
+    value.replace(" ", "-");
+
+    while (value.indexOf("--") >= 0) {
+        value.replace("--", "-");
+    }
+
+    return value;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -361,7 +374,7 @@ void setupWiFi() {
         String new_hostname = custom_mqtt_hostname.getValue();
         String new_webhook_url = custom_webhook_url.getValue();
         String new_webhook_secret = custom_webhook_secret.getValue();
-        String new_webhook_device_id = custom_webhook_device_id.getValue();
+        String new_webhook_device_id = normalizeDeviceId(custom_webhook_device_id.getValue());
         String new_webhook_bin_id = custom_webhook_bin_id.getValue();
         
         if (new_hostname.length() == 0) {
@@ -371,7 +384,7 @@ void setupWiFi() {
             new_webhook_url = DEFAULT_WEBHOOK_URL;
         }
         if (new_webhook_device_id.length() == 0) {
-            new_webhook_device_id = new_hostname;
+            new_webhook_device_id = normalizeDeviceId(new_hostname);
         }
         
         preferences.begin("rf-bridge", false);
@@ -738,7 +751,7 @@ void setupWebServer() {
             String new_hostname = doc["mqtt_hostname"].as<String>();
             String new_webhook_url = doc["webhook_url"].as<String>();
             String new_webhook_secret = doc["webhook_secret"].as<String>();
-            String new_webhook_device_id = doc["webhook_device_id"].as<String>();
+            String new_webhook_device_id = normalizeDeviceId(doc["webhook_device_id"].as<String>());
             String new_webhook_bin_id = doc["webhook_bin_id"].as<String>();
             
             if (new_server.length() == 0 || new_port < 1 || new_port > 65535) {
@@ -753,7 +766,7 @@ void setupWebServer() {
                 new_webhook_url = DEFAULT_WEBHOOK_URL;
             }
             if (new_webhook_device_id.length() == 0 || new_webhook_device_id.length() > 39) {
-                new_webhook_device_id = new_hostname;
+                new_webhook_device_id = normalizeDeviceId(new_hostname);
             }
             
             preferences.begin("rf-bridge", false);
@@ -989,7 +1002,7 @@ void restoreSettings() {
         saved_webhook_url.toCharArray(webhook_url, 160);
         String saved_webhook_secret = preferences.getString("webhook_secret", DEFAULT_WEBHOOK_SECRET);
         saved_webhook_secret.toCharArray(webhook_secret, 80);
-        String saved_webhook_device_id = preferences.getString("webhook_device_id", saved_hostname);
+        String saved_webhook_device_id = normalizeDeviceId(preferences.getString("webhook_device_id", saved_hostname));
         saved_webhook_device_id.toCharArray(webhook_device_id, 40);
         String saved_webhook_bin_id = preferences.getString("webhook_bin_id", "");
         saved_webhook_bin_id.toCharArray(webhook_bin_id, 40);
@@ -999,7 +1012,8 @@ void restoreSettings() {
         Serial.printf("[Storage] Webhook bin ID: %s\n", webhook_bin_id);
     } else {
         Serial.println("[Storage] Using hardcoded MQTT settings");
-        strncpy(webhook_device_id, mqtt_hostname, sizeof(webhook_device_id) - 1);
+        String normalizedFallbackDeviceId = normalizeDeviceId(String(mqtt_hostname));
+        normalizedFallbackDeviceId.toCharArray(webhook_device_id, sizeof(webhook_device_id));
         webhook_device_id[sizeof(webhook_device_id) - 1] = '\0';
     }
     
@@ -1133,6 +1147,7 @@ bool sendWebhookState(const char* state, int slot) {
     }
 
     String payloadDeviceId = strlen(webhook_device_id) > 0 ? webhook_device_id : mqtt_hostname;
+    payloadDeviceId = normalizeDeviceId(payloadDeviceId);
     StaticJsonDocument<256> doc;
     doc["deviceId"] = payloadDeviceId;
     doc["fullnessPercent"] = state;

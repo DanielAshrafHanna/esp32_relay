@@ -59,7 +59,6 @@ When a known RF code is received, the ESP32 sends:
 ```json
 {
   "deviceId": "esp32-bin-01",
-  "binId": "bin-01",
   "fullnessPercent": "FULL"
 }
 ```
@@ -69,14 +68,13 @@ or
 ```json
 {
   "deviceId": "esp32-bin-01",
-  "binId": "bin-01",
   "fullnessPercent": "NORMAL"
 }
 ```
 
 Notes:
 - `deviceId` is configurable from the ESP admin page
-- `binId` is optional but recommended
+- `deviceId` is automatically normalized to lowercase with spaces converted to hyphens
 - `fullnessPercent` is intentionally used as the current web app field name, but its actual values are now `FULL` or `NORMAL`
 
 ### MQTT behavior
@@ -150,7 +148,6 @@ Configured from the ESP web UI and saved in NVS:
 - MQTT hostname
 - Webhook URL
 - Webhook Device ID
-- Webhook Bin ID
 - Webhook Secret
 - Learned RF codes and their state mapping
 
@@ -175,7 +172,6 @@ The admin page is used to configure:
 - MQTT hostname
 - Webhook URL
 - Webhook Device ID
-- Webhook Bin ID
 - Webhook Secret
 
 Current default webhook URL is already prefilled:
@@ -252,7 +248,6 @@ Open the admin page and configure:
 - MQTT settings
 - `Webhook URL`
 - `Webhook Device ID`
-- `Webhook Bin ID`
 - `Webhook Secret` if required
 
 Recommended values:
@@ -260,12 +255,12 @@ Recommended values:
 ```text
 Webhook URL:       https://trash-monitor-web.vercel.app/api/bin-event
 Webhook Device ID: esp32-bin-01
-Webhook Bin ID:    bin-01
 ```
 
 Important:
-- `Webhook Device ID` must match a real `device_id` in the web app database
-- `Webhook Bin ID` should match the real bin record if you are using explicit bin IDs
+- `Webhook Device ID` must match a real `deviceId` in the web app database
+- if you type spaces in the ESP admin page, the firmware saves the value in normalized form
+- example: `Dany Test` becomes `dany-test`
 
 ### 6. Learn RF codes
 
@@ -328,7 +323,6 @@ This means:
 
 The hosted app updates an existing bin by:
 - `deviceId`
-- optionally `binId`
 
 ## API Endpoints Exposed by the ESP
 
@@ -449,7 +443,6 @@ Check:
 - WiFi connected
 - webhook URL correct
 - `Webhook Device ID` matches a record in the web app
-- `Webhook Bin ID` matches if used
 - hosted web app is online
 
 ### MQTT is not connecting
@@ -475,7 +468,6 @@ For each physical trash bin:
 1. Prepare one ESP32 receiver unit
 2. Configure unique values:
    - `Webhook Device ID`
-   - `Webhook Bin ID`
 3. Learn:
    - one `FULL` transmitter
    - one `NORMAL` transmitter
@@ -485,7 +477,6 @@ Example:
 
 ```text
 Webhook Device ID: esp32-bin-07
-Webhook Bin ID:    bin-07
 RF signal 1:       FULL
 RF signal 2:       NORMAL
 ```
