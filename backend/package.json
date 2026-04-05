@@ -1,0 +1,28 @@
+{
+  "name": "solace-relay-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:api": "tsx watch src/index.ts",
+    "dev:gateway": "tsx watch src/gateway-entry.ts",
+    "start:api": "node dist/index.js",
+    "start:gateway": "node dist/gateway-entry.js",
+    "test": "tsx --test src/test/**/*.test.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "fastify": "^5.2.1",
+    "mqtt": "^5.10.4",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

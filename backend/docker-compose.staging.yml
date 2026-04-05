@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: solace_relay
+      POSTGRES_USER: solace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    command: ["node", "dist/index.js"]
+    depends_on:
+      - postgres
+      - mosquitto
+    networks:
+      - backend
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    command: ["node", "dist/gateway-entry.js"]
+    depends_on:
+      - postgres
+      - mosquitto
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - backend
+
+volumes:
+  postgres_data:
+  mosquitto_data:
+  mosquitto_log:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:

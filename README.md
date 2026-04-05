@@ -2,13 +2,14 @@
 
 **WIFI Signal should be <-60 dBm for stable results**
 
-**Version 1.2** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
+**Version 1.4** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
 > **🔥 Having issues? Check [CHANGELOG.md](CHANGELOG.md) - every problem and fix is documented there!**
 
 > **⚡ Quick Upload Commands**
+>
 > ```bash
 > pio run --target uploadfs    # Upload web files (when HTML/CSS/JS changes)
 > pio run --target upload       # Upload firmware (when code changes)
@@ -64,102 +65,91 @@ Optional - RF Receiver:
 ### Prerequisites
 
 1. **PlatformIO**: Install via VS Code extension or CLI
-   - [Install PlatformIO IDE](https://platformio.org/install/ide?install=vscode)
-
+  - [Install PlatformIO IDE](https://platformio.org/install/ide?install=vscode)
 2. **USB Drivers**: Install CP2102 or CH340 drivers for your ESP32
 
 ### Installation Steps
 
 > **⚠️ CRITICAL: TWO-STEP UPLOAD PROCESS**
-> 
+>
 > ESP32 requires **TWO separate uploads**:
+>
 > 1. **Filesystem** (web files) → `pio run --target uploadfs`
 > 2. **Firmware** (code) → `pio run --target upload`
-> 
+>
 > **If webpage doesn't work**, you probably forgot step 1!
 > Error: `/littlefs/index.html does not exist` = filesystem not uploaded
 
 > **📦 ALTERNATIVE: Upload via .bin Files**
-> 
+>
 > If flashing via bin files instead of PlatformIO commands, you need **two files**:
-> 
-> | File | Address | Build Command |
-> |------|---------|---------------|
-> | `firmware.bin` | `0x10000` | `pio run` |
+>
+>
+> | File           | Address    | Build Command              |
+> | -------------- | ---------- | -------------------------- |
+> | `firmware.bin` | `0x10000`  | `pio run`                  |
 > | `littlefs.bin` | `0x290000` | `pio run --target buildfs` |
-> 
+>
+>
 > **Flash with esptool:**
+>
 > ```bash
 > esptool.py --chip esp32 --port YOUR_PORT write_flash 0x10000 firmware.bin 0x290000 littlefs.bin
 > ```
-> 
+>
 > **Note:** If updating an existing device, you only need these two files. For a fresh ESP32, also include:
+>
 > - `bootloader.bin` at `0x1000`
 > - `partitions.bin` at `0x8000`
-> 
+>
 > Find all files in: `.pio/build/esp32dev/`
 
 1. **Clone or download this project**
-
 2. **Configure Hardware Settings**
-   
-   Edit `include/config.h`:
-   - Set `NUM_RELAYS` to match your relay count
-   - Update `RELAY_PINS[]` array with your GPIO pins
-   - Customize `RELAY_NAMES[]` for friendly names
-   - Change `MDNS_HOSTNAME` if desired (default: `esp32-relay`)
-
+  Edit `include/config.h`:
+  - Set `NUM_RELAYS` to match your relay count
+  - Update `RELAY_PINS[]` array with your GPIO pins
+  - Customize `RELAY_NAMES[]` for friendly names
+  - Change `MDNS_HOSTNAME` if desired (default: `esp32-relay`)
 3. **Upload Filesystem (Web Interface) - STEP 1** ⚠️
-   
-   ```bash
+  ```bash
    pio run --target uploadfs
-   ```
-   
+  ```
    This uploads the web interface files (HTML/CSS/JS) to the ESP32's LittleFS filesystem.
-   
    **DO THIS FIRST** or webpage won't work!
-
 4. **Compile and Upload Code - STEP 2** ⚠️
-   
-   ```bash
+  ```bash
    pio run --target upload
-   ```
-   
+  ```
    Or use the PlatformIO upload button in VS Code.
-   
    **Note**: The VS Code upload button ONLY uploads firmware, not filesystem!
-
 5. **Monitor Serial Output**
-   
-   ```bash
+  ```bash
    pio device monitor --baud 115200
-   ```
+  ```
 
 ## First-Time Setup
 
 ### 1. WiFi Configuration
 
 1. After uploading, the ESP32 will create a WiFi access point:
-   - **SSID**: `ESP32-Relay-Setup`
-   - **Password**: `12345678`
-
+  - **SSID**: `ESP32-Relay-Setup`
+  - **Password**: `12345678`
 2. Connect to this network with your phone or computer
-
 3. A captive portal should open automatically (or navigate to `192.168.4.1`)
-
 4. Enter your WiFi credentials and MQTT settings:
-   - **SSID**: Your WiFi network name
-   - **Password**: Your WiFi password
-   - **MQTT Server**: IP address of your MQTT broker (e.g., `192.168.1.100`)
-   - **MQTT Port**: Usually `1883`
-   - **MQTT User**: MQTT username (if required)
-   - **MQTT Password**: MQTT password (if required)
-
+  - **SSID**: Your WiFi network name
+  - **Password**: Your WiFi password
+  - **MQTT Server**: IP address of your MQTT broker (e.g., `192.168.1.100`)
+  - **MQTT Port**: Usually `1883`
+  - **MQTT User**: MQTT username (if required)
+  - **MQTT Password**: MQTT password (if required)
 5. Click "Save" - the ESP32 will connect to your WiFi
 
 ### 2. Access Web Interface
 
 Once connected to WiFi, access the web interface at:
+
 - `http://esp32-relay.local` (recommended)
 - Or use the IP address shown in serial monitor
 
@@ -170,27 +160,25 @@ Once connected to WiFi, access the web interface at:
 The controller automatically publishes MQTT discovery messages to Home Assistant.
 
 **Requirements:**
+
 - MQTT broker running (Mosquitto recommended)
 - Home Assistant MQTT integration configured
 
 **Setup:**
 
 1. Configure MQTT in Home Assistant (`configuration.yaml`):
-   ```yaml
+  ```yaml
    mqtt:
      broker: YOUR_MQTT_BROKER_IP
      port: 1883
      username: YOUR_USERNAME  # if required
      password: YOUR_PASSWORD  # if required
      discovery: true
-   ```
-
+  ```
 2. Restart Home Assistant
-
 3. The relays will automatically appear as switches in Home Assistant
-
 4. Find them in:
-   - **Devices & Services** → **MQTT** → **ESP32-Relay**
+  - **Devices & Services** → **MQTT** → **ESP32-Relay**
 
 ### Manual MQTT Topics
 
@@ -209,24 +197,28 @@ switch:
 ## Web Interface Features
 
 ### Relay Control
+
 - Real-time relay status display
 - One-click toggle for each relay
 - Visual feedback (colors, animations)
 - GPIO pin information
 
 ### System Information
+
 - WiFi network details
 - IP address and hostname
 - Signal strength indicator
 - MQTT connection status
 
 ### Settings
+
 - Reset WiFi configuration
 - Reconfigure MQTT settings
 
 ## MQTT Topics Structure
 
 ### State Topics (Published by ESP32)
+
 ```
 homeassistant/switch/esp32-relay/relay1/state
 homeassistant/switch/esp32-relay/relay2/state
@@ -234,6 +226,7 @@ homeassistant/switch/esp32-relay/relay2/state
 ```
 
 ### Command Topics (Subscribed by ESP32)
+
 ```
 homeassistant/switch/esp32-relay/relay1/set
 homeassistant/switch/esp32-relay/relay2/set
@@ -241,6 +234,7 @@ homeassistant/switch/esp32-relay/relay2/set
 ```
 
 ### Discovery Topics
+
 ```
 homeassistant/switch/esp32-relay/relay1/config
 homeassistant/switch/esp32-relay/relay2/config
@@ -252,6 +246,7 @@ homeassistant/switch/esp32-relay/relay2/config
 ### Change Number of Relays
 
 Edit `include/config.h`:
+
 ```cpp
 #define NUM_RELAYS 8  // Change to your relay count
 
@@ -269,6 +264,7 @@ const char* RELAY_NAMES[NUM_RELAYS] = {
 ### Change Hostname
 
 Edit `include/config.h`:
+
 ```cpp
 #define MDNS_HOSTNAME "my-relay"  // Access at http://my-relay.local
 ```
@@ -276,11 +272,13 @@ Edit `include/config.h`:
 ### Modify Web Interface
 
 Edit files in `data/` folder:
+
 - `index.html` - Structure
 - `style.css` - Styling
 - `script.js` - Functionality
 
 After changes, re-upload filesystem:
+
 ```bash
 pio run --target uploadfs
 ```
@@ -290,6 +288,7 @@ pio run --target uploadfs
 ### ⚠️ Web Interface Not Loading (Most Common Issue)
 
 **Error in Serial Monitor:**
+
 ```
 [E][vfs_api.cpp:105] open(): /littlefs/index.html does not exist
 ```
@@ -297,6 +296,7 @@ pio run --target uploadfs
 **Cause**: Filesystem not uploaded (only firmware was uploaded)
 
 **Solution**:
+
 ```bash
 # Upload the filesystem (web files)
 pio run --target uploadfs
@@ -305,6 +305,7 @@ pio run --target uploadfs
 ```
 
 **Why this happens**: 
+
 - PlatformIO's upload button ONLY uploads firmware, not filesystem
 - After code changes, you often need to re-upload filesystem too
 - The two storage areas (code flash vs. data flash) are separate
@@ -344,7 +345,9 @@ The web server exposes REST API endpoints for advanced control and troubleshooti
 ### Relay Control
 
 #### GET /api/relays
+
 Returns status of all relays
+
 ```json
 {
   "relays": [
@@ -356,7 +359,9 @@ Returns status of all relays
 ```
 
 #### POST /api/relay
+
 Control a single relay
+
 ```json
 {
   "relay": 1,
@@ -367,13 +372,17 @@ Control a single relay
 ### Network Status
 
 #### GET /api/wifi
+
 Get WiFi connection information
 
 #### GET /api/mqtt
+
 Get MQTT connection status
 
 #### GET /api/mdns/status
+
 Get mDNS service status
+
 ```json
 {
   "hostname": "esp32-relay",
@@ -386,40 +395,51 @@ Get mDNS service status
 ### Configuration & Admin
 
 #### GET /api/admin/config
+
 Get admin configuration (requires authentication)
 
 #### POST /api/admin/config
+
 Update relay count configuration (requires authentication)
 
 #### POST /api/admin/mqtt
+
 Update MQTT credentials (requires authentication)
 
 #### POST /api/reset
+
 Reset WiFi configuration and restart
 
 ### RF Receiver
 
 #### GET /api/rf/status
+
 Get RF learning status and learned code
 
 #### POST /api/rf/learn
+
 Activate RF learning mode
 
 #### POST /api/rf/stop
+
 Stop RF learning mode
 
 #### POST /api/rf/clear
+
 Clear learned RF code
 
 ### Troubleshooting
 
 #### POST /api/mqtt/rediscover
+
 Force MQTT discovery republish (bypasses cooldown)
 
 #### POST /api/mdns/restart
+
 Restart mDNS service manually
 
 **Note**: Admin endpoints require HTTP Basic Authentication:
+
 - Username: `admin`
 - Password: `Solacepass@123`
 
@@ -440,16 +460,19 @@ Restart mDNS service manually
 This project includes comprehensive documentation for all features and troubleshooting:
 
 ### Getting Started
+
 - **README.md** (this file) - Main project overview and setup
 - `QUICK_REFERENCE.md` - Command reference and quick tips
 - `GET_STARTED.md` - Beginner-friendly setup guide
 - `SETUP_GUIDE.md` - Detailed installation instructions
 
 ### Hardware
+
 - `WIRING.md` - Wiring diagrams and safety information
 - `FILE_STRUCTURE.txt` - Project file organization
 
 ### Features & Guides
+
 - `RF_RECEIVER_GUIDE.md` - Complete RF receiver setup and usage
 - `RF_IMPLEMENTATION_SUMMARY.md` - RF feature quick reference
 - `WIFI_RECONNECTION.md` - WiFi reconnection logic explained
@@ -457,6 +480,7 @@ This project includes comprehensive documentation for all features and troublesh
 - `home_assistant_example.yaml` - Home Assistant configuration examples
 
 ### Troubleshooting & Fixes
+
 - `TROUBLESHOOTING.md` - General troubleshooting guide
 - `CHANGELOG.md` - **⭐ Complete history of issues and fixes**
 - `MQTT_OPTIMIZATION.md` - MQTT performance optimization details
@@ -469,16 +493,19 @@ This project includes comprehensive documentation for all features and troublesh
 ### Most Important Documents
 
 🔥 **If you have issues, read these first:**
+
 1. **CHANGELOG.md** - Every problem we faced and how it was fixed
 2. **TROUBLESHOOTING.md** - Common issues and solutions
 3. **PC_MDNS_TROUBLESHOOTING.md** - Why .local URL doesn't work on your PC
 
 📖 **For understanding the system:**
+
 - **PERFORMANCE_FIX_SUMMARY.md** - Why relays were slow and how we fixed it
 - **MQTT_OPTIMIZATION.md** - Why MQTT reconnection was blocking
 - **MDNS_FIX.md** - Why .local URL stopped working
 
 🎓 **For learning:**
+
 - **RF_RECEIVER_GUIDE.md** - Complete RF setup walkthrough
 - **EVENT_DRIVEN_WIFI.md** - Non-blocking WiFi implementation
 
@@ -489,6 +516,7 @@ This project is open source. Feel free to modify and distribute.
 ## Support
 
 For issues and questions:
+
 1. **Read CHANGELOG.md** - Every issue and fix is documented there
 2. Check the troubleshooting section above
 3. Review serial monitor output
@@ -535,15 +563,18 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 ### Default Credentials
 
 **WiFi AP Mode** (if not configured):
+
 - SSID: `ESP32-Relay-Config`
 - Password: `12345678`
 
 **MQTT** (hardcoded, changeable via web):
+
 - Broker: `192.168.68.100:1883`
 - User: `solacemqtt`
 - Password: `solacepass`
 
 **Admin Panel**:
+
 - Username: `admin`
 - Password: `Solacepass@123`
 
@@ -554,7 +585,6 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
   - Added uptime display on webpage (shows time since last reboot)
   - Background WiFi reconnection continues every 60 seconds in AP mode
   - Critical fix for safety-sensitive applications (lights, gates)
-
 - **v1.3.0** - Smart Reconnection System 
   - **Smart WiFi Reconnection:**
     - Fast phase: 6 attempts every 10 seconds (~1 minute) before AP mode
@@ -582,45 +612,35 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
   - **MQTT Keep-Alive Optimization:**
     - Reduced keep-alive from 60s to 30s for faster availability detection
     - Home Assistant now detects disconnection in ~45s instead of ~75s
-
 - **v1.4.1** - WiFi reconnection speed improvement (October 2025)
   - Faster WiFi disconnection detection (30s → 5s, 6x faster)
   - Faster AP mode entry (30s → 15s timeout, 2x faster)
   - More frequent reconnection attempts (60s → 30s, 2x more)
   - Total time to AP mode reduced from ~60s to ~20s (3x faster)
   - Maintains non-blocking operation and AP client protection
-
 - **v1.4** - Performance optimization (October 2025)
   - Optimized MQTT reconnection (48x faster)
   - Removed blocking delays from discovery publishing
   - Added smart WiFi reconnection with AP fallback
   - Improved system responsiveness
-
 - **v1.3** - RF Receiver support (October 2025)
   - SYN480R 433MHz receiver integration
   - RF learning mode via web interface
   - Home Assistant RF trigger entity
   - Manual stop learning mode button
-
 - **v1.2** - Enhanced configuration (October 2025)
   - Password-protected admin panel
   - Dynamic relay count configuration (8/12/16)
   - MQTT credential management
   - State persistence across reboots
-
 - **v1.1** - Full Home Assistant integration (October 2025)
   - MQTT auto-discovery
   - 16-relay support
   - Enhanced web interface
   - mDNS support (.local URLs)
-
 - **v1.0** - Initial release
   - WiFi configuration portal
   - Basic web interface
   - MQTT integration
   - Multi-relay support
-
-
-
-
 
