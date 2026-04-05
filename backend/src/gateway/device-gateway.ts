@@ -1,6 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import mqtt, { type IClientOptions, type MqttClient } from "mqtt";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getEnv } from "../config/env.js";
 import { normalizeReportedState } from "../domain/actions.js";
 import { createId } from "../lib/security.js";
@@ -236,18 +236,22 @@ export class DeviceGateway {
           );
         });
 
-        await client.query(
-          `
-            update commands
-            set
-              status = 'waiting_state',
-              expected_step_state = $2,
-              step_timeout_at = now() + ($3 || ' milliseconds')::interval,
-              started_at = coalesce(started_at, now())
-            where id = $1
-          `,
-          [row.id, step.expectState, this.env.commandStepTimeoutMs],
-        );
+        if (row.transport_version === "legacy_ha") {
+          await this.completeLegacyStep(client, row, step);
+        } else {
+          await client.query(
+            `
+              update commands
+              set
+                status = 'waiting_state',
+                expected_step_state = $2,
+                step_timeout_at = now() + ($3 || ' milliseconds')::interval,
+                started_at = coalesce(started_at, now())
+              where id = $1
+            `,
+            [row.id, step.expectState, this.env.commandStepTimeoutMs],
+          );
+        }
 
         await client.query(
           `
@@ -422,5 +426,54 @@ export class DeviceGateway {
     } finally {
       client.release();
     }
+  }
+
+  private async completeLegacyStep(client: PoolClient, row: GatewayCommandRow, step: TransportStep) {
+    const nextStepIndex = row.current_step + 1;
+
+    await client.query(
+      `
+        insert into output_state_snapshots (output_id, last_state, source, raw_payload, updated_at)
+        values ($1, $2, 'gateway_optimistic', $3::jsonb, now())
+        on conflict (output_id)
+        do update set last_state = excluded.last_state, source = excluded.source, raw_payload = excluded.raw_payload, updated_at = excluded.updated_at
+      `,
+      [row.output_id, step.expectState, JSON.stringify({ topic: step.topic, payload: step.payload, optimistic: true })],
+    );
+
+    if (nextStepIndex >= row.steps.length) {
+      await client.query(
+        `
+          update commands
+          set
+            status = 'completed',
+            current_step = $2,
+            expected_step_state = null,
+            step_timeout_at = null,
+            started_at = coalesce(started_at, now()),
+            result_payload = jsonb_set(coalesce(result_payload, '{}'::jsonb), '{completed_state}', to_jsonb($3::text), true),
+            completed_at = now()
+          where id = $1
+        `,
+        [row.id, nextStepIndex, step.expectState],
+      );
+      return;
+    }
+
+    await client.query(
+      `
+        update commands
+        set
+          status = 'queued',
+          current_step = $2,
+          expected_step_state = null,
+          step_timeout_at = null,
+          started_at = coalesce(started_at, now()),
+          next_step_at = now() + ($3 || ' milliseconds')::interval,
+          result_payload = jsonb_set(coalesce(result_payload, '{}'::jsonb), '{last_confirmed_state}', to_jsonb($4::text), true)
+        where id = $1
+      `,
+      [row.id, nextStepIndex, step.delayAfterMs ?? 0, step.expectState],
+    );
   }
 }
