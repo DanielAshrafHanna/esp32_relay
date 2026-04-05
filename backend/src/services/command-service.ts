@@ -93,6 +93,23 @@ export class CommandService {
       throw new AppError("Customer service is suspended", 403, "customer_suspended");
     }
 
+    await this.pool.query(
+      `
+        update commands
+        set
+          status = 'timed_out',
+          last_error = coalesce(last_error, 'Expired before a new command was accepted'),
+          completed_at = coalesce(completed_at, now())
+        where output_id = $1
+          and (
+            (status = 'waiting_state' and step_timeout_at is not null and step_timeout_at < now())
+            or
+            (status = 'queued' and deadline_at is not null and deadline_at < now())
+          )
+      `,
+      [output.id],
+    );
+
     const inflight = await this.pool.query(
       `
         select 1
