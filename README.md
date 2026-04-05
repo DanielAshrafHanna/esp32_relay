@@ -2,7 +2,7 @@
 
 **WIFI Signal should be <-60 dBm for stable results**
 
-**Version 1.4** - Professional 16-channel relay controller with WiFi, MQTT, and RF receiver support.
+**Version 1.4** - Professional 8-channel relay controller with WiFi, MQTT, and RF receiver support.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
@@ -44,7 +44,7 @@ If the MQTT password field shows dots, that is a masked placeholder returned by 
 
 ## Features
 
-- 🔌 **16-Channel Relay Control**: Support for up to 16 relays (configurable: 8/12/16)
+- 🔌 **8-Channel Relay Control**: Fixed 8-relay mapping for the current hardware
 - 📡 **WiFi Manager**: Captive portal for easy WiFi and MQTT configuration
 - 🌐 **Web Interface**: Modern, responsive web UI accessible via `.local` domain
 - 🏠 **Home Assistant Integration**: Full MQTT auto-discovery support
@@ -67,15 +67,15 @@ If the MQTT password field shows dots, that is a masked placeholder returned by 
 Connect the relays to the GPIO pins defined in `include/config.h`:
 
 ```
-Current GPIO Pin Configuration (16 relays):
-- Relay 1:  GPIO 13    │  Relay 9:  GPIO 2
-- Relay 2:  GPIO 12    │  Relay 10: GPIO 4
-- Relay 3:  GPIO 14    │  Relay 11: GPIO 16
-- Relay 4:  GPIO 27    │  Relay 12: GPIO 17
-- Relay 5:  GPIO 26    │  Relay 13: GPIO 18
-- Relay 6:  GPIO 25    │  Relay 14: GPIO 19
-- Relay 7:  GPIO 33    │  Relay 15: GPIO 21
-- Relay 8:  GPIO 32    │  Relay 16: GPIO 22
+Current GPIO Pin Configuration (8 relays):
+- Relay 1: GPIO 13  (old Relay 1)
+- Relay 2: GPIO 12  (old Relay 2)
+- Relay 3: GPIO 14  (old Relay 3)
+- Relay 4: GPIO 27  (old Relay 4)
+- Relay 5: GPIO 26  (old Relay 5)
+- Relay 6: GPIO 25  (old Relay 6)
+- Relay 7: GPIO 32  (old Relay 8)
+- Relay 8: GPIO 4   (old Relay 10)
 
 Optional - RF Receiver:
 - RF Data Pin: GPIO 15

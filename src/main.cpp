@@ -28,7 +28,7 @@ char mqtt_hostname[MQTT_HOSTNAME_MAX_LEN] = "esp32-relay";  // Configurable MQTT
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
-int activeRelayCount = 16;  // Default to all 16 relays
+int activeRelayCount = NUM_RELAYS;  // Fixed logical relay count for this board
 
 // RF Receiver settings - Multiple codes support
 #define MAX_RF_CODES 10
@@ -922,8 +922,8 @@ void setupWebServer() {
             
             int newRelayCount = doc["active_relays"];
             
-            if (newRelayCount != 8 && newRelayCount != 12 && newRelayCount != 16) {
-                request->send(400, "application/json", "{\"error\":\"Invalid relay count. Must be 8, 12, or 16\"}");
+            if (newRelayCount != NUM_RELAYS) {
+                request->send(400, "application/json", "{\"error\":\"This firmware is fixed to 8 relays\"}");
                 return;
             }
             
@@ -1206,7 +1206,10 @@ void restoreRelayStates() {
     Serial.println("[Storage] Restoring relay states...");
     
     // Restore active relay count
-    activeRelayCount = preferences.getInt("active_count", 16);
+    activeRelayCount = preferences.getInt("active_count", NUM_RELAYS);
+    if (activeRelayCount != NUM_RELAYS) {
+        activeRelayCount = NUM_RELAYS;
+    }
     Serial.printf("[Storage] Active relay count: %d\n", activeRelayCount);
     
     // Restore MQTT settings if they exist (override hardcoded defaults)

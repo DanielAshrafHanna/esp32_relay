@@ -78,7 +78,57 @@ async function main() {
     );
     const deviceId = deviceResult.rows[0].id as string;
 
-    for (let channel = 1; channel <= 16; channel++) {
+    await client.query(
+      `
+        delete from output_aliases
+        where output_id in (
+          select id
+          from device_outputs
+          where device_id = $1 and channel > 8
+        )
+      `,
+      [deviceId],
+    );
+
+    await client.query(
+      `
+        delete from output_state_snapshots
+        where output_id in (
+          select id
+          from device_outputs
+          where device_id = $1 and channel > 8
+        )
+      `,
+      [deviceId],
+    );
+
+    await client.query(
+      `
+        delete from commands
+        where output_id in (
+          select id
+          from device_outputs
+          where device_id = $1 and channel > 8
+        )
+      `,
+      [deviceId],
+    );
+
+    await client.query(
+      `
+        delete from device_events
+        where output_id in (
+          select id
+          from device_outputs
+          where device_id = $1 and channel > 8
+        )
+      `,
+      [deviceId],
+    );
+
+    await client.query(`delete from device_outputs where device_id = $1 and channel > 8`, [deviceId]);
+
+    for (let channel = 1; channel <= 8; channel++) {
       const profile =
         channel === 1
           ? resolveOutputProfileConfig({
@@ -178,7 +228,7 @@ async function main() {
     console.log("Default webhook entity IDs:");
     console.log("- Channel 1: light.entry_light");
     console.log("- Channel 2: lock.aywanalocker_door");
-    console.log("- Channels 3-16: switch.relay_demo_01_relay_<channel>");
+    console.log("- Channels 3-8: switch.relay_demo_01_relay_<channel>");
   } catch (error) {
     await client.query("rollback");
     throw error;

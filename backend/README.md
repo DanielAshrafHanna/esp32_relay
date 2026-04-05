@@ -175,15 +175,15 @@ Compatibility behavior mapping:
 - `switch.toggle` becomes relay `TOGGLE`
 - `cover.*` is supported only when the output profile and allowed actions are configured to accept it
 
-## All 16 Relays
+## Current Seeded Relays
 
-The seed now creates one 16-channel device model:
+The seed now creates one 8-channel device model:
 
 - Channel 1: `light.entry_light`
 - Channel 2: `lock.aywanalocker_door`
-- Channels 3-16: `switch.relay_demo_01_relay_<channel>`
+- Channels 3-8: `switch.relay_demo_01_relay_<channel>`
 
-That means you can immediately trigger any of channels 3-16 with compatibility webhooks like:
+That means you can immediately trigger any of channels 3-8 with compatibility webhooks like:
 
 ```bash
 curl -X POST http://localhost:8080/api/services/switch/turn_on \
@@ -416,5 +416,5 @@ The seed script creates:
 
 - one admin user
 - one service account token for the current app
-- one demo 16-channel device using the legacy Home Assistant MQTT topics
-- 16 output records ready for webhook-driven testing
+- one demo 8-channel device using the legacy Home Assistant MQTT topics
+- 8 output records ready for webhook-driven testing

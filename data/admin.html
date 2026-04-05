@@ -52,73 +52,24 @@
             margin-bottom: 15px;
         }
 
-        .option-card {
+        .fixed-config {
             background: #f8f9fa;
             border: 2px solid #e9ecef;
             border-radius: 12px;
             padding: 20px;
-            margin-bottom: 15px;
-            cursor: pointer;
-            transition: all 0.3s ease;
         }
 
-        .option-card:hover {
-            border-color: #667eea;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-        }
-
-        .option-card.selected {
-            border-color: #667eea;
-            background: linear-gradient(135deg, #667eea15, #764ba215);
-        }
-
-        .option-card input[type="radio"] {
-            display: none;
-        }
-
-        .option-header {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .radio-custom {
-            width: 24px;
-            height: 24px;
-            border: 2px solid #ddd;
-            border-radius: 50%;
-            margin-right: 15px;
-            position: relative;
-            transition: all 0.3s ease;
-        }
-
-        .option-card.selected .radio-custom {
-            border-color: #667eea;
-        }
-
-        .option-card.selected .radio-custom::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 12px;
-            height: 12px;
-            background: #667eea;
-            border-radius: 50%;
-        }
-
-        .option-title {
-            font-weight: 600;
+        .fixed-config strong {
             color: #333;
-            font-size: 1.1rem;
+            display: block;
+            margin-bottom: 8px;
+            font-size: 1.05rem;
         }
 
-        .option-description {
+        .fixed-config p {
             color: #666;
-            font-size: 0.9rem;
-            margin-left: 39px;
+            font-size: 0.95rem;
+            line-height: 1.5;
         }
 
         .current-config {
@@ -277,40 +228,11 @@
         </div>
 
         <div class="config-section">
-            <h2>Home Assistant Relay Entities</h2>
-
-            <label class="option-card" data-value="8">
-                <input type="radio" name="relay-count" value="8">
-                <div class="option-header">
-                    <div class="radio-custom"></div>
-                    <div class="option-title">8 Channels</div>
-                </div>
-                <div class="option-description">
-                    Relays 1 to 8 will appear in Home Assistant
-                </div>
-            </label>
-
-            <label class="option-card" data-value="12">
-                <input type="radio" name="relay-count" value="12">
-                <div class="option-header">
-                    <div class="radio-custom"></div>
-                    <div class="option-title">12 Channels</div>
-                </div>
-                <div class="option-description">
-                    Relays 1 to 12 will appear in Home Assistant
-                </div>
-            </label>
-
-            <label class="option-card" data-value="16">
-                <input type="radio" name="relay-count" value="16">
-                <div class="option-header">
-                    <div class="radio-custom"></div>
-                    <div class="option-title">16 Channels</div>
-                </div>
-                <div class="option-description">
-                    Relays 1 to 16 will appear in Home Assistant (All relays)
-                </div>
-            </label>
+            <h2>Relay Mapping</h2>
+            <div class="fixed-config">
+                <strong>Fixed 8-channel board</strong>
+                <p>This firmware exposes 8 logical relays. They map to the old 16-channel layout positions 1, 2, 3, 4, 5, 6, 8, and 10, and are now presented as relay channels 1 through 8.</p>
+            </div>
         </div>
 
         <button class="btn-save" onclick="saveConfig()">💾 Save Configuration</button>
@@ -320,21 +242,21 @@
         </div>
 
         <div class="info-note">
-            <p><strong>Note:</strong> After saving, the ESP32 will restart and republish MQTT discovery messages with the selected number of relays.</p>
+            <p><strong>Note:</strong> After saving, the ESP32 will restart and republish MQTT discovery messages for the fixed 8-relay mapping.</p>
         </div>
 
         <a href="/" class="back-link">← Back to Main Page</a>
     </div>
 
     <script>
-        let currentConfig = 16;
+        let currentConfig = 8;
 
         // Load current configuration
         async function loadConfig() {
             try {
                 const response = await fetch('/api/admin/config');
                 const data = await response.json();
-                currentConfig = data.active_relays || 16;
+                currentConfig = data.active_relays || 8;
                 
                 document.getElementById('current-relays').textContent = `${currentConfig} Channels`;
                 
@@ -345,37 +267,15 @@
                 document.getElementById('mqtt-password').value = data.mqtt_password || '';
                 document.getElementById('mqtt-hostname').value = data.mqtt_hostname || 'esp32-relay';
                 
-                // Select the current relay count option
-                const option = document.querySelector(`.option-card[data-value="${currentConfig}"]`);
-                if (option) {
-                    option.classList.add('selected');
-                    option.querySelector('input').checked = true;
-                }
             } catch (error) {
                 console.error('Error loading config:', error);
-                document.getElementById('current-relays').textContent = '16 Channels (default)';
+                document.getElementById('current-relays').textContent = '8 Channels (fixed)';
             }
         }
 
-        // Handle option selection
-        document.querySelectorAll('.option-card').forEach(card => {
-            card.addEventListener('click', function() {
-                document.querySelectorAll('.option-card').forEach(c => c.classList.remove('selected'));
-                this.classList.add('selected');
-                this.querySelector('input').checked = true;
-            });
-        });
-
         // Save configuration
         async function saveConfig() {
-            const selected = document.querySelector('input[name="relay-count"]:checked');
-            
-            if (!selected) {
-                alert('Please select a configuration');
-                return;
-            }
-
-            const relayCount = parseInt(selected.value);
+            const relayCount = 8;
 
             try {
                 const response = await fetch('/api/admin/config', {
@@ -459,5 +359,4 @@
     </script>
 </body>
 </html>
-
 
