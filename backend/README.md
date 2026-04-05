@@ -62,6 +62,34 @@ These are seeded for local testing only:
 
 Change them before any internet-facing deployment.
 
+## Current Railway Test Deployment
+
+The current hosted test environment we created uses:
+
+- API URL: `https://esp32relay-production.up.railway.app/`
+- MQTT broker host: `eclipse-mosquitto-production-1ad3.up.railway.app`
+- MQTT broker port: `1883`
+- Seeded admin email: `admin@solace.local`
+- Seeded admin password: `ChangeMe123!`
+- Seeded service token: `solace-railway-test-token`
+- Seeded device MQTT hostname/topic namespace: `esp32-relay`
+
+These values are for the current test deployment only. Rotate them before any real customer rollout.
+
+## ESP Firmware Note For Railway MQTT
+
+Railway broker hostnames are long. The firmware originally stored `mqtt_server` in a 40-character buffer, which truncates hosts such as `eclipse-mosquitto-production-1ad3.up.railway.app` and causes MQTT connection failure.
+
+This branch includes a firmware fix that increases the MQTT server, username, password, and MQTT hostname buffers. After flashing the updated firmware:
+
+- re-enter the full MQTT server hostname
+- set port `1883`
+- leave username blank for the current test broker
+- clear the password field if you want it blank
+- keep MQTT hostname as `esp32-relay`
+
+If the password field in `/solaceadmin` shows dots, that is a masked placeholder, not proof that a real password is still required.
+
 ## Phase 1 Compatibility Routes
 
 These routes accept the current Home Assistant-style webhook writes from the app:
@@ -205,6 +233,24 @@ For the easiest operator flow:
    - `Pulse` matters for gate or pulse-style behavior
 6. Click `Save` on that row
 7. Use the row action buttons or the `Webhook Tester` section to trigger it
+
+## Current Test Webhooks
+
+Against the current Railway deployment:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/api/services/lock/unlock \
+  -H "Authorization: Bearer solace-railway-test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"entity_id":"lock.aywanalocker_door"}'
+```
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/api/services/light/turn_on \
+  -H "Authorization: Bearer solace-railway-test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"entity_id":"light.entry_light"}'
+```
 
 ## Staging Deployment
 

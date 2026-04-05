@@ -53,6 +53,10 @@ static constexpr const char* RELAY_NAMES[NUM_RELAYS] = {
 #define MQTT_PORT 1883
 #define MQTT_TOPIC_PREFIX "homeassistant/switch/"
 #define MQTT_DISCOVERY_PREFIX "homeassistant"
+#define MQTT_SERVER_MAX_LEN 128
+#define MQTT_USER_MAX_LEN 64
+#define MQTT_PASSWORD_MAX_LEN 64
+#define MQTT_HOSTNAME_MAX_LEN 64
 
 // Web Server
 #define WEB_SERVER_PORT 80
@@ -68,4 +72,3 @@ static constexpr const char* RELAY_NAMES[NUM_RELAYS] = {
 #define RF_TRIGGER_DURATION 2000  // 2 seconds in milliseconds
 
 #endif
-

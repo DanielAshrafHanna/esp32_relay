@@ -176,14 +176,27 @@ Your ESP relay should use those values as:
 - MQTT port = Railway TCP proxy port
 - MQTT hostname/topic = `esp32-relay`
 
+For the current test deployment, the generated public values are:
+
+- MQTT server: `eclipse-mosquitto-production-1ad3.up.railway.app`
+- MQTT port: `1883`
+
 ## 9. Initialize the database once
 
-After the API service has built successfully, open the Railway shell/console for the API service and run:
+If Railway shell is available, open the API service shell and run:
 
 ```bash
 node dist/db/migrate.js
 node dist/db/seed.js
 ```
+
+If Railway shell is not available, a simple first-pass workaround is to temporarily set the API start command to:
+
+```bash
+sh -c "node dist/db/migrate.js && node dist/db/seed.js && node dist/index.js"
+```
+
+That is how the current test deployment was initialized.
 
 That creates:
 
@@ -204,6 +217,13 @@ Log in with:
 
 - email: `admin@solace.local`
 - password: whatever you set in `SEED_ADMIN_PASSWORD`
+
+The current test deployment uses:
+
+- API URL: `https://esp32relay-production.up.railway.app/`
+- Admin email: `admin@solace.local`
+- Admin password: `ChangeMe123!`
+- Service token: `solace-railway-test-token`
 
 Then:
 
@@ -238,6 +258,8 @@ Before using this for paying customers, we should still do these:
 - add broker authentication to Mosquitto
 - stop using anonymous MQTT
 - generate per-device MQTT credentials
+- rotate the seeded admin password and service token
+- move migrate/seed out of the API start command into a one-time release/init flow
 - replace seeded/default credentials
 - add backups and production secrets hygiene
 - make relay onboarding easier from the GUI

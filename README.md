@@ -17,6 +17,31 @@
 
 A professional ESP32-based relay controller with WiFi configuration portal, full Home Assistant integration via MQTT, and 433MHz RF receiver support.
 
+## Cloud Middleware Note
+
+This repo now also contains the new backend middleware in [backend/README.md](/Users/danielhanna/Desktop/Solace%20Codes/esp32_rellay/backend/README.md). The target production path is:
+
+`Mobile App -> Backend API -> MQTT Broker -> ESP Relay`
+
+For the current hosted test environment:
+
+- API URL: `https://esp32relay-production.up.railway.app/`
+- MQTT broker host: `eclipse-mosquitto-production-1ad3.up.railway.app`
+- MQTT broker port: `1883`
+- Middleware admin email: `admin@solace.local`
+- Middleware admin password: `ChangeMe123!`
+- Middleware service token: `solace-railway-test-token`
+
+Rotate those test credentials before any real rollout.
+
+## Railway MQTT Hostname Fix
+
+Railway-generated MQTT hostnames are longer than the old firmware buffer size. This branch increases the MQTT server and credential buffers so the ESP can store long broker hosts like `eclipse-mosquitto-production-1ad3.up.railway.app` without truncating them.
+
+If `/solaceadmin` shows a shortened MQTT server such as `eclipse-mosquitto-production-1ad3.up.ra`, the device is still on older firmware and needs to be reflashed.
+
+If the MQTT password field shows dots, that is a masked placeholder returned by the admin API. Clear it explicitly and save if you want a truly blank password.
+
 ## Features
 
 - 🔌 **16-Channel Relay Control**: Support for up to 16 relays (configurable: 8/12/16)
@@ -144,7 +169,16 @@ Optional - RF Receiver:
   - **MQTT Port**: Usually `1883`
   - **MQTT User**: MQTT username (if required)
   - **MQTT Password**: MQTT password (if required)
+  - **MQTT Hostname**: topic namespace used under `homeassistant/switch/<mqtt_hostname>/...`
 5. Click "Save" - the ESP32 will connect to your WiFi
+
+For the current Railway test broker, use:
+
+- MQTT Server: `eclipse-mosquitto-production-1ad3.up.railway.app`
+- MQTT Port: `1883`
+- MQTT User: blank
+- MQTT Password: blank
+- MQTT Hostname: `esp32-relay`
 
 ### 2. Access Web Interface
 
@@ -643,4 +677,3 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
   - Basic web interface
   - MQTT integration
   - Multi-relay support
-

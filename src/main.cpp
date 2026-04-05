@@ -20,11 +20,11 @@ Preferences preferences;
 RCSwitch rfReceiver = RCSwitch();
 
 // MQTT settings (hardcoded defaults)
-char mqtt_server[40] = "192.168.68.100";
+char mqtt_server[MQTT_SERVER_MAX_LEN] = "192.168.68.100";
 char mqtt_port[6] = "1883";
-char mqtt_user[40] = "solacemqtt";
-char mqtt_password[40] = "solacepass";
-char mqtt_hostname[40] = "esp32-relay";  // Configurable MQTT hostname for topics
+char mqtt_user[MQTT_USER_MAX_LEN] = "solacemqtt";
+char mqtt_password[MQTT_PASSWORD_MAX_LEN] = "solacepass";
+char mqtt_hostname[MQTT_HOSTNAME_MAX_LEN] = "esp32-relay";  // Configurable MQTT hostname for topics
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
@@ -344,11 +344,11 @@ void setupWiFi() {
     shouldSaveConfig = false;
     
     // Create custom parameters for MQTT configuration (including hostname)
-    WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, 40);
+    WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, MQTT_SERVER_MAX_LEN);
     WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
-    WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, 40);
-    WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, 40);
-    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, 40);
+    WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, MQTT_USER_MAX_LEN);
+    WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, MQTT_PASSWORD_MAX_LEN);
+    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
     
     // Add all custom parameters to WiFiManager
     wifiManager.addParameter(&custom_mqtt_server);
@@ -408,11 +408,11 @@ void setupWiFi() {
         preferences.end();
         
         // Update current variables
-        new_server.toCharArray(mqtt_server, 40);
+        new_server.toCharArray(mqtt_server, MQTT_SERVER_MAX_LEN);
         new_port.toCharArray(mqtt_port, 6);
-        new_user.toCharArray(mqtt_user, 40);
-        new_password.toCharArray(mqtt_password, 40);
-        new_hostname.toCharArray(mqtt_hostname, 40);
+        new_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);
+        new_password.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
+        new_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
         
         Serial.println("[WiFiManager] MQTT settings saved:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
@@ -972,7 +972,7 @@ void setupWebServer() {
             }
             
             // Validate hostname - use default if empty or too long
-            if (new_hostname.length() == 0 || new_hostname.length() > 39) {
+            if (new_hostname.length() == 0 || new_hostname.length() >= MQTT_HOSTNAME_MAX_LEN) {
                 new_hostname = "esp32-relay";
             }
             
@@ -991,12 +991,12 @@ void setupWebServer() {
             preferences.end();
             
             // Update current variables
-            new_server.toCharArray(mqtt_server, 40);
+            new_server.toCharArray(mqtt_server, MQTT_SERVER_MAX_LEN);
             String(new_port).toCharArray(mqtt_port, 6);
-            new_user.toCharArray(mqtt_user, 40);
-            new_hostname.toCharArray(mqtt_hostname, 40);
+            new_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);
+            new_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
             if (new_password != "••••••••") {
-                new_password.toCharArray(mqtt_password, 40);
+                new_password.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
             }
             
             Serial.println("[Admin] MQTT settings updated");
@@ -1212,15 +1212,15 @@ void restoreRelayStates() {
     // Restore MQTT settings if they exist (override hardcoded defaults)
     String saved_server = preferences.getString("mqtt_server", "");
     if (saved_server.length() > 0) {
-        saved_server.toCharArray(mqtt_server, 40);
+        saved_server.toCharArray(mqtt_server, MQTT_SERVER_MAX_LEN);
         String saved_port = preferences.getString("mqtt_port", "1883");
         saved_port.toCharArray(mqtt_port, 6);
         String saved_user = preferences.getString("mqtt_user", "");
-        saved_user.toCharArray(mqtt_user, 40);
+        saved_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);
         String saved_pass = preferences.getString("mqtt_pass", "");
-        saved_pass.toCharArray(mqtt_password, 40);
+        saved_pass.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
         String saved_hostname = preferences.getString("mqtt_hostname", "esp32-relay");
-        saved_hostname.toCharArray(mqtt_hostname, 40);
+        saved_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
         Serial.println("[Storage] MQTT settings loaded from preferences");
         Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
     } else {
@@ -1411,4 +1411,3 @@ void deleteRFCode(int slot) {
         Serial.printf("[RF] Deleted code from slot %d\n", slot);
     }
 }
-
