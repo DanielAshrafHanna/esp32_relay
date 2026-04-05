@@ -105,6 +105,41 @@ These routes accept the current Home Assistant-style webhook writes from the app
 - `POST /api/services/:domain/:service`
 - `POST /compat/ha/api/services/:domain/:service`
 
+Authentication for compatibility routes:
+
+- use `Authorization: Bearer <service-account-token>`
+- for the current Railway test deployment, that token is `solace-railway-test-token`
+
+Request body:
+
+```json
+{
+  "entity_id": "lock.aywanalocker_door"
+}
+```
+
+You can also send multiple entities in one call:
+
+```json
+{
+  "entity_id": ["switch.relay_demo_01_relay_3", "switch.relay_demo_01_relay_4"]
+}
+```
+
+Typical success response:
+
+```json
+{
+  "commands": [
+    {
+      "id": "command-id",
+      "status": "queued"
+    }
+  ],
+  "accepted": 1
+}
+```
+
 Example:
 
 ```bash
@@ -131,6 +166,15 @@ The same handlers are also exposed under:
 
 - `POST /compat/ha/api/services/:domain/:service`
 
+Compatibility behavior mapping:
+
+- `lock.unlock` on a `gate` profile becomes a backend pulse using `pulse_ms`
+- `light.turn_on` on a `light` profile becomes relay `ON`
+- `light.turn_off` on a `light` profile becomes relay `OFF`
+- `switch.turn_on` on a `generic_relay` profile becomes relay `ON`
+- `switch.toggle` becomes relay `TOGGLE`
+- `cover.*` is supported only when the output profile and allowed actions are configured to accept it
+
 ## All 16 Relays
 
 The seed now creates one 16-channel device model:
@@ -149,6 +193,25 @@ curl -X POST http://localhost:8080/api/services/switch/turn_on \
 ```
 
 ## Native API
+
+Authentication for native API routes:
+
+- `POST /v1/auth/login` uses email and password
+- all other `/v1/*` routes use `Authorization: Bearer <admin-jwt>` unless stated otherwise
+
+Core native routes:
+
+- `POST /v1/auth/login`
+- `GET /v1/me`
+- `GET /v1/devices`
+- `GET /v1/devices/:id`
+- `GET /v1/outputs`
+- `GET /v1/outputs/:id`
+- `POST /v1/outputs/:id/actions`
+- `PATCH /v1/outputs/:id/profile`
+- `PUT /v1/devices/:id/outputs/configuration`
+- `GET /v1/commands/:id`
+- `POST /v1/provisioning/device-credentials`
 
 Admin login:
 
@@ -180,6 +243,35 @@ curl -X POST http://localhost:8080/v1/outputs/<output-id>/actions \
   -H "Content-Type: application/json" \
   -d '{"action":"pulse","duration_ms":2000}'
 ```
+
+Supported native actions:
+
+- `on`
+- `off`
+- `toggle`
+- `pulse`
+
+Common native API response behavior:
+
+- command-creation endpoints return `202 Accepted`
+- provisioning returns `201 Created`
+- listing routes return `200 OK`
+- validation failures return `400`
+- unsupported compatibility routes return `404`
+- suspended customers are blocked from command creation
+
+## Auth Models
+
+There are two main auth modes in the middleware:
+
+- admin/operator auth:
+  - log in at `POST /v1/auth/login`
+  - receive a JWT
+  - use this for GUI access, device management, output profile changes, and reading command/device data
+- service-account auth:
+  - use a fixed bearer token
+  - intended for the current mobile app compatibility webhook calls
+  - should not be used for full admin operations in the long term
 
 ## Choosing Gate vs Light Per Relay
 
@@ -259,6 +351,45 @@ curl -X POST https://esp32relay-production.up.railway.app/api/services/light/tur
   -H "Content-Type: application/json" \
   -d '{"entity_id":"light.entry_light"}'
 ```
+
+Turn a generic relay on:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/api/services/switch/turn_on \
+  -H "Authorization: Bearer solace-railway-test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"entity_id":"switch.relay_demo_01_relay_3"}'
+```
+
+Turn a generic relay off:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/api/services/switch/turn_off \
+  -H "Authorization: Bearer solace-railway-test-token" \
+  -H "Content-Type: application/json" \
+  -d '{"entity_id":"switch.relay_demo_01_relay_3"}'
+```
+
+## Live Test Checklist
+
+Use this exact order for a live cloud test:
+
+1. Confirm the ESP is connected to Wi-Fi and MQTT using:
+   - MQTT server: `junction.proxy.rlwy.net`
+   - MQTT port: `57522`
+   - MQTT hostname: `esp32-relay`
+2. Open the GUI:
+   - `https://esp32relay-production.up.railway.app/`
+3. Log in with:
+   - email: `admin@solace.local`
+   - password: `ChangeMe123!`
+4. Click `Load Devices`
+5. Click `Load Outputs`
+6. Trigger one of these tests:
+   - gate pulse: `lock.aywanalocker_door`
+   - light on/off: `light.entry_light`
+   - generic relay on/off: `switch.relay_demo_01_relay_3`
+7. If using curl, keep polling the command id with `GET /v1/commands/:id` if you want to confirm completion status
 
 ## Staging Deployment
 
