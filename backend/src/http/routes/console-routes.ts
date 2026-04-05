@@ -177,8 +177,8 @@ function consoleHtml() {
         <h2>Quick Defaults</h2>
         <p class="mono">Admin email: admin@solace.local</p>
         <p class="mono">Admin password: ChangeMe123!</p>
-        <p class="mono">Service token: solace-local-test-token</p>
-        <p>Change these before any real deployment. They are only here to make local testing fast.</p>
+        <p class="mono">Enter the current service token for the environment you are using.</p>
+        <p>For the current Railway test deployment, use <code>solace-railway-test-token</code>. For local development, use your local seeded token.</p>
       </section>
     </div>
 
@@ -201,7 +201,7 @@ function consoleHtml() {
         </div>
         <div>
           <label for="service-token">Webhook Service Token</label>
-          <input id="service-token" value="solace-local-test-token">
+          <input id="service-token" value="" placeholder="Enter service token for this environment">
         </div>
         <div>
           <label for="device-id">Device ID</label>
