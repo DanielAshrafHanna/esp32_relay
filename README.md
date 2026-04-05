@@ -26,8 +26,8 @@ This repo now also contains the new backend middleware in [backend/README.md](/U
 For the current hosted test environment:
 
 - API URL: `https://esp32relay-production.up.railway.app/`
-- MQTT broker host: `eclipse-mosquitto-production-1ad3.up.railway.app`
-- MQTT broker port: `1883`
+- MQTT broker public host: `junction.proxy.rlwy.net`
+- MQTT broker public port: `57522`
 - Middleware admin email: `admin@solace.local`
 - Middleware admin password: `ChangeMe123!`
 - Middleware service token: `solace-railway-test-token`
@@ -36,7 +36,7 @@ Rotate those test credentials before any real rollout.
 
 ## Railway MQTT Hostname Fix
 
-Railway-generated MQTT hostnames are longer than the old firmware buffer size. This branch increases the MQTT server and credential buffers so the ESP can store long broker hosts like `eclipse-mosquitto-production-1ad3.up.railway.app` without truncating them.
+Railway-generated MQTT hostnames can be longer than the old firmware buffer size. This branch increases the MQTT server and credential buffers so the ESP can store long broker hosts without truncating them.
 
 If `/solaceadmin` shows a shortened MQTT server such as `eclipse-mosquitto-production-1ad3.up.ra`, the device is still on older firmware and needs to be reflashed.
 
@@ -174,8 +174,8 @@ Optional - RF Receiver:
 
 For the current Railway test broker, use:
 
-- MQTT Server: `eclipse-mosquitto-production-1ad3.up.railway.app`
-- MQTT Port: `1883`
+- MQTT Server: `junction.proxy.rlwy.net`
+- MQTT Port: `57522`
 - MQTT User: blank
 - MQTT Password: blank
 - MQTT Hostname: `esp32-relay`

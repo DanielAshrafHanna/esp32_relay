@@ -176,10 +176,17 @@ Your ESP relay should use those values as:
 - MQTT port = Railway TCP proxy port
 - MQTT hostname/topic = `esp32-relay`
 
-For the current test deployment, the generated public values are:
+Important:
 
-- MQTT server: `eclipse-mosquitto-production-1ad3.up.railway.app`
-- MQTT port: `1883`
+- the MQTT public endpoint must come from the Mosquitto service `TCP Proxy` entry
+- this is typically a Railway proxy hostname plus a Railway-generated proxy port
+- it is not usually the same as the service's normal `*.up.railway.app` HTTP domain
+- it is not guaranteed to be port `1883`
+
+The current verified test endpoint is:
+
+- MQTT server: `junction.proxy.rlwy.net`
+- MQTT port: `57522`
 
 ## 9. Initialize the database once
 
