@@ -12,7 +12,7 @@ const OUTPUT_SELECT = `
     d.customer_id,
     o.device_id,
     d.device_key,
-    coalesce(nullif(d.metadata->>'display_name', ''), d.device_key) as device_display_name,
+    coalesce(nullif(d.metadata->>'display_name', ''), d.mqtt_hostname, d.device_key) as device_display_name,
     d.desired_enabled as device_desired_enabled,
     d.mqtt_hostname,
     d.transport_version,
@@ -42,7 +42,7 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
-          coalesce(nullif(metadata->>'display_name', ''), device_key) as display_name,
+          coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
           active, desired_enabled, availability, last_seen_at
         from devices
         where customer_id = any($1::uuid[])
@@ -58,7 +58,7 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
-          coalesce(nullif(metadata->>'display_name', ''), device_key) as display_name,
+          coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
           active, desired_enabled, availability, last_seen_at
         from devices
         where id = $1

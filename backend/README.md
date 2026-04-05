@@ -345,7 +345,9 @@ Each board section includes:
 - a board-level enable toggle using `desired_enabled`
 - grouped relay rows underneath the board header
 
-Board titles are currently stored in middleware on the device record. That means you can rename a board from the console immediately without reflashing the ESP.
+Board titles now default to the device `mqtt_hostname`, which matches the `MQTT Hostname` field you set on the ESP in `/solaceadmin`.
+
+If you set a custom board title in the middleware console, that custom title overrides the MQTT hostname fallback.
 
 If you later want the board title to originate from the ESP `/solaceadmin` page and sync automatically into middleware, that can be added as a follow-up feature.
 
