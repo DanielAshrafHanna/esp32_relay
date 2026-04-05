@@ -334,6 +334,21 @@ For the easiest operator flow:
 6. Click `Save` on that row
 7. Use the row action buttons or the `Webhook Tester` section to trigger it
 
+## Relay Board Sections
+
+The console groups outputs by relay board instead of showing one flat list.
+
+Each board section includes:
+
+- a board title shown above that board's relays
+- the MQTT hostname and availability for that board
+- a board-level enable toggle using `desired_enabled`
+- grouped relay rows underneath the board header
+
+Board titles are currently stored in middleware on the device record. That means you can rename a board from the console immediately without reflashing the ESP.
+
+If you later want the board title to originate from the ESP `/solaceadmin` page and sync automatically into middleware, that can be added as a follow-up feature.
+
 ## Current Test Webhooks
 
 Against the current Railway deployment:

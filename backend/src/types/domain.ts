@@ -48,6 +48,7 @@ export interface DeviceRecord {
   customerId: string;
   siteId: string | null;
   deviceKey: string;
+  displayName: string;
   mqttHostname: string;
   transportVersion: DeviceTransportVersion;
   firmwareVersion: string | null;
@@ -62,6 +63,8 @@ export interface OutputRecord {
   customerId: string;
   deviceId: string;
   deviceKey: string;
+  deviceDisplayName: string;
+  deviceDesiredEnabled: boolean;
   mqttHostname: string;
   transportVersion: DeviceTransportVersion;
   channel: number;

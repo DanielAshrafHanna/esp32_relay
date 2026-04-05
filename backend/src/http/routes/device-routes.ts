@@ -18,6 +18,17 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     return services.outputService.getDevice(principal, params.id);
   });
 
+  app.patch("/v1/devices/:id", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    const params = request.params as { id: string };
+    const body = (request.body ?? {}) as Record<string, unknown>;
+
+    return services.outputService.updateDevice(principal, params.id, {
+      displayName: typeof body.display_name === "string" ? body.display_name : undefined,
+      desiredEnabled: typeof body.desired_enabled === "boolean" ? body.desired_enabled : undefined,
+    });
+  });
+
   app.get("/v1/outputs", async (request) => {
     const principal = await requirePrincipal(request, services);
     return {

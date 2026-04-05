@@ -12,6 +12,8 @@ const OUTPUT_SELECT = `
     d.customer_id,
     o.device_id,
     d.device_key,
+    coalesce(nullif(d.metadata->>'display_name', ''), d.device_key) as device_display_name,
+    d.desired_enabled as device_desired_enabled,
     d.mqtt_hostname,
     d.transport_version,
     o.channel,
@@ -40,6 +42,7 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+          coalesce(nullif(metadata->>'display_name', ''), device_key) as display_name,
           active, desired_enabled, availability, last_seen_at
         from devices
         where customer_id = any($1::uuid[])
@@ -55,6 +58,7 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+          coalesce(nullif(metadata->>'display_name', ''), device_key) as display_name,
           active, desired_enabled, availability, last_seen_at
         from devices
         where id = $1
@@ -214,8 +218,8 @@ export class OutputService {
     );
 
     for (const config of configs) {
-      if (!Number.isInteger(config.channel) || config.channel < 1 || config.channel > 16) {
-        throw new AppError(`Channel '${config.channel}' is invalid; expected 1-16`, 400, "invalid_channel");
+      if (!Number.isInteger(config.channel) || config.channel < 1 || config.channel > 8) {
+        throw new AppError(`Channel '${config.channel}' is invalid; expected 1-8`, 400, "invalid_channel");
       }
 
       const existing = existingByChannel.get(config.channel);
@@ -279,5 +283,31 @@ export class OutputService {
     );
 
     return refreshed.rows.map((row) => mapOutputRow(row as Record<string, unknown>));
+  }
+
+  async updateDevice(
+    principal: AuthPrincipal,
+    deviceId: string,
+    input: { displayName?: string; desiredEnabled?: boolean },
+  ): Promise<DeviceRecord> {
+    const device = await this.getDevice(principal, deviceId);
+
+    await this.pool.query(
+      `
+        update devices
+        set
+          desired_enabled = coalesce($2, desired_enabled),
+          metadata = case
+            when $3::text is null then metadata
+            when btrim($3::text) = '' then coalesce(metadata, '{}'::jsonb) - 'display_name'
+            else jsonb_set(coalesce(metadata, '{}'::jsonb), '{display_name}', to_jsonb(btrim($3::text)), true)
+          end,
+          updated_at = now()
+        where id = $1
+      `,
+      [device.id, input.desiredEnabled, input.displayName ?? null],
+    );
+
+    return this.getDevice(principal, device.id);
   }
 }

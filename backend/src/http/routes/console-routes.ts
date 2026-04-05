@@ -149,6 +149,48 @@ function consoleHtml() {
       flex-wrap: wrap;
       margin-bottom: 12px;
     }
+    .device-stack {
+      display: grid;
+      gap: 18px;
+    }
+    .device-section {
+      border: 1px solid rgba(24, 32, 39, 0.08);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.68);
+      padding: 16px;
+    }
+    .device-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .device-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .device-meta span {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+      color: var(--muted);
+      font-size: 0.84rem;
+    }
+    .toggle-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.92rem;
+      color: var(--ink);
+    }
+    .toggle-line input {
+      width: auto;
+    }
     .mono {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.87rem;
@@ -168,7 +210,7 @@ function consoleHtml() {
     <div class="hero">
       <section class="card">
         <h1>Solace Relay Middleware</h1>
-        <p>Operator console for the cloud relay backend. Use this page to log in, inspect all 16 outputs, switch a relay between <strong>gate</strong>, <strong>light</strong>, <strong>cover</strong>, or <strong>generic relay</strong>, and trigger actions through the same middleware the app uses.</p>
+        <p>Operator console for the cloud relay backend. Use this page to log in, inspect relay boards, switch each relay between <strong>gate</strong>, <strong>light</strong>, <strong>cover</strong>, or <strong>generic relay</strong>, and trigger actions through the same middleware the app uses.</p>
         <span class="pill">Compatibility Webhooks</span>
         <span class="pill">Native API</span>
         <span class="pill">MQTT Gateway</span>
@@ -251,25 +293,10 @@ function consoleHtml() {
 
     <section class="card">
       <div class="toolbar">
-        <h2>Relay Outputs</h2>
-        <div class="muted">Each row can be edited and triggered independently.</div>
+        <h2>Relay Boards</h2>
+        <div class="muted">Each board has its own title, enabled toggle, and grouped relay rows.</div>
       </div>
-      <div style="overflow:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th>Channel</th>
-              <th>State</th>
-              <th>Display</th>
-              <th>Profile</th>
-              <th>Entity</th>
-              <th>Pulse</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="outputs-body"></tbody>
-        </table>
-      </div>
+      <div id="device-sections" class="device-stack"></div>
       <div id="outputs-status" class="status">Load outputs to begin.</div>
     </section>
   </div>
@@ -284,7 +311,7 @@ function consoleHtml() {
     const authStatus = document.getElementById("auth-status");
     const webhookStatus = document.getElementById("webhook-status");
     const outputsStatus = document.getElementById("outputs-status");
-    const outputsBody = document.getElementById("outputs-body");
+    const deviceSections = document.getElementById("device-sections");
 
     function setStatus(node, message, kind) {
       node.textContent = message;
@@ -338,48 +365,104 @@ function consoleHtml() {
     }
 
     function renderOutputs() {
-      outputsBody.innerHTML = "";
+      deviceSections.innerHTML = "";
       if (!state.outputs.length) {
-        outputsBody.innerHTML = '<tr><td colspan="7" class="muted">No outputs loaded yet.</td></tr>';
+        deviceSections.innerHTML = '<div class="muted">No outputs loaded yet.</div>';
         return;
       }
 
+      const outputsByDevice = new Map();
       for (const output of state.outputs) {
-        const tr = document.createElement("tr");
-        const actionButtons = profileActions(output.profileType)
-          .map((action) => '<button data-action="' + action.service + '" data-domain="' + action.domain + '" data-id="' + output.id + '" class="trigger-btn secondary">' + action.label + '</button>')
-          .join("");
+        if (!outputsByDevice.has(output.deviceId)) {
+          outputsByDevice.set(output.deviceId, []);
+        }
+        outputsByDevice.get(output.deviceId).push(output);
+      }
 
-        tr.innerHTML = \`
-          <td><strong>\${output.channel}</strong><div class="mono muted">\${output.id.slice(0, 8)}</div></td>
-          <td><span class="\${output.lastKnownState === "ON" ? "state-on" : "state-off"}">\${output.lastKnownState}</span></td>
-          <td>
-            <input data-field="display_name" data-id="\${output.id}" value="\${output.displayName}">
-          </td>
-          <td>
-            <select data-field="profile_type" data-id="\${output.id}">
-              <option value="generic_relay" \${output.profileType === "generic_relay" ? "selected" : ""}>generic relay</option>
-              <option value="light" \${output.profileType === "light" ? "selected" : ""}>light</option>
-              <option value="gate" \${output.profileType === "gate" ? "selected" : ""}>gate</option>
-              <option value="cover" \${output.profileType === "cover" ? "selected" : ""}>cover</option>
-            </select>
-          </td>
-          <td>
-            <input class="mono" data-field="compat_entity_id" data-id="\${output.id}" value="\${output.compatEntityId || ""}">
-          </td>
-          <td>
-            <input data-field="pulse_ms" data-id="\${output.id}" type="number" value="\${output.pulseMs || ""}" placeholder="2000">
-          </td>
-          <td>
-            <div class="actions" style="margin-bottom:8px;">
-              \${actionButtons}
+      const devices = state.devices.length
+        ? state.devices
+        : Array.from(outputsByDevice.entries()).map(([deviceId, outputs]) => ({
+            id: deviceId,
+            displayName: outputs[0].deviceDisplayName,
+            deviceKey: outputs[0].deviceKey,
+            mqttHostname: outputs[0].mqttHostname,
+            availability: "unknown",
+            desiredEnabled: outputs[0].deviceDesiredEnabled
+          }));
+
+      for (const device of devices) {
+        const outputs = (outputsByDevice.get(device.id) || []).sort((a, b) => a.channel - b.channel);
+        const section = document.createElement("section");
+        section.className = "device-section";
+
+        const rows = outputs.map((output) => {
+          const actionButtons = profileActions(output.profileType)
+            .map((action) => '<button data-action="' + action.service + '" data-domain="' + action.domain + '" data-id="' + output.id + '" class="trigger-btn secondary">' + action.label + '</button>')
+            .join("");
+
+          return \`
+            <tr>
+              <td><strong>\${output.channel}</strong><div class="mono muted">\${output.id.slice(0, 8)}</div></td>
+              <td><span class="\${output.lastKnownState === "ON" ? "state-on" : "state-off"}">\${output.lastKnownState}</span></td>
+              <td><input data-field="display_name" data-id="\${output.id}" value="\${output.displayName}"></td>
+              <td>
+                <select data-field="profile_type" data-id="\${output.id}">
+                  <option value="generic_relay" \${output.profileType === "generic_relay" ? "selected" : ""}>generic relay</option>
+                  <option value="light" \${output.profileType === "light" ? "selected" : ""}>light</option>
+                  <option value="gate" \${output.profileType === "gate" ? "selected" : ""}>gate</option>
+                  <option value="cover" \${output.profileType === "cover" ? "selected" : ""}>cover</option>
+                </select>
+              </td>
+              <td><input class="mono" data-field="compat_entity_id" data-id="\${output.id}" value="\${output.compatEntityId || ""}"></td>
+              <td><input data-field="pulse_ms" data-id="\${output.id}" type="number" value="\${output.pulseMs || ""}" placeholder="2000"></td>
+              <td>
+                <div class="actions" style="margin-bottom:8px;">\${actionButtons}</div>
+                <div class="actions"><button class="save-btn" data-id="\${output.id}">Save Relay</button></div>
+              </td>
+            </tr>
+          \`;
+        }).join("");
+
+        section.innerHTML = \`
+          <div class="device-head">
+            <div>
+              <h3>\${device.displayName || device.deviceKey}</h3>
+              <div class="device-meta">
+                <span class="mono">MQTT: \${device.mqttHostname}</span>
+                <span>Availability: \${device.availability}</span>
+                <span>Key: \${device.deviceKey}</span>
+              </div>
             </div>
-            <div class="actions">
-              <button class="save-btn" data-id="\${output.id}">Save</button>
+            <div style="min-width:320px;">
+              <label>Board Title</label>
+              <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
+              <div class="actions" style="margin-top:10px; align-items:center;">
+                <label class="toggle-line">
+                  <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
+                  Enable this relay board for webhook/API commands
+                </label>
+                <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
+              </div>
             </div>
-          </td>
+          </div>
+          <div style="overflow:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Channel</th>
+                  <th>State</th>
+                  <th>Display</th>
+                  <th>Profile</th>
+                  <th>Entity</th>
+                  <th>Pulse</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>\${rows || '<tr><td colspan="7" class="muted">No outputs for this device.</td></tr>'}</tbody>
+            </table>
+          </div>
         \`;
-        outputsBody.appendChild(tr);
+        deviceSections.appendChild(section);
       }
     }
 
@@ -400,7 +483,7 @@ function consoleHtml() {
       setStatus(authStatus, "Admin login successful.", "ok");
     }
 
-    async function loadDevices() {
+    async function loadDevices(silent = false) {
       const response = await fetch("/v1/devices", { headers: authHeaders(true) });
       const data = await response.json();
       if (!response.ok) {
@@ -410,10 +493,15 @@ function consoleHtml() {
       if (state.devices[0]) {
         document.getElementById("device-id").value = state.devices[0].id;
       }
-      setStatus(authStatus, "Loaded " + state.devices.length + " device(s).", "ok");
+      if (!silent) {
+        setStatus(authStatus, "Loaded " + state.devices.length + " device(s).", "ok");
+      }
     }
 
     async function loadOutputs() {
+      if (!state.devices.length) {
+        await loadDevices(true);
+      }
       const response = await fetch("/v1/outputs", { headers: authHeaders(true) });
       const data = await response.json();
       if (!response.ok) {
@@ -422,6 +510,31 @@ function consoleHtml() {
       state.outputs = data.outputs || [];
       renderOutputs();
       setStatus(outputsStatus, "Loaded " + state.outputs.length + " output(s).", "ok");
+    }
+
+    function collectDeviceValues(id) {
+      return {
+        display_name: document.querySelector('[data-device-field="display_name"][data-device-id="' + id + '"]').value.trim(),
+        desired_enabled: document.querySelector('[data-device-field="desired_enabled"][data-device-id="' + id + '"]').checked
+      };
+    }
+
+    async function saveDevice(id) {
+      const response = await fetch("/v1/devices/" + id, {
+        method: "PATCH",
+        headers: authHeaders(true),
+        body: JSON.stringify(collectDeviceValues(id))
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save device");
+      }
+      state.devices = state.devices.map((device) => device.id === data.id ? data : device);
+      state.outputs = state.outputs.map((output) => output.deviceId === data.id
+        ? { ...output, deviceDisplayName: data.displayName, deviceDesiredEnabled: data.desiredEnabled }
+        : output);
+      renderOutputs();
+      setStatus(outputsStatus, "Saved board " + data.displayName + ".", "ok");
     }
 
     function collectRowValues(id) {
@@ -516,10 +629,18 @@ function consoleHtml() {
       setStatus(authStatus, "Cleared saved admin session.", "ok");
     });
 
-    outputsBody.addEventListener("click", async (event) => {
+    deviceSections.addEventListener("click", async (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) {
         return;
+      }
+
+      if (target.classList.contains("save-device-btn")) {
+        try {
+          await saveDevice(target.dataset.deviceId);
+        } catch (error) {
+          setStatus(outputsStatus, error.message, "error");
+        }
       }
 
       if (target.classList.contains("save-btn")) {

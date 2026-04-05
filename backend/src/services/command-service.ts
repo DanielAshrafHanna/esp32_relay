@@ -93,6 +93,10 @@ export class CommandService {
       throw new AppError("Customer service is suspended", 403, "customer_suspended");
     }
 
+    if (!output.deviceDesiredEnabled) {
+      throw new AppError(`Device '${output.deviceDisplayName}' is disabled for webhook/API commands`, 403, "device_disabled");
+    }
+
     await this.pool.query(
       `
         update commands

@@ -8,6 +8,8 @@ const baseOutput: OutputRecord = {
   customerId: "cust-1",
   deviceId: "dev-1",
   deviceKey: "relay-demo-01",
+  deviceDisplayName: "Board 1",
+  deviceDesiredEnabled: true,
   mqttHostname: "esp32-relay",
   transportVersion: "legacy_ha",
   channel: 2,
