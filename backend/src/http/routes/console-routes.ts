@@ -520,15 +520,16 @@ function consoleHtml() {
 
       return {
         ...spec,
-        curl: 'curl -X POST ' +
+        curl:
+          "curl -X POST " +
           window.location.origin +
-          '/api/services/' +
+          "/api/services/" +
           domain +
-          '/' +
+          "/" +
           service +
-          ' \\\\\n  -H "Authorization: Bearer ' +
+          ' -H "Authorization: Bearer ' +
           authToken +
-          '" \\\\\n  -H "Content-Type: application/json" \\\\\n  -d ' +
+          '" -H "Content-Type: application/json" -d ' +
           "'" +
           JSON.stringify({ entity_id: entityId }) +
           "'"
