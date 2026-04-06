@@ -19,7 +19,10 @@ if [ ! -f "$CONFIG_DIR/passwd" ]; then
   touch "$CONFIG_DIR/passwd"
 fi
 
-chmod 600 "$CONFIG_DIR/passwd"
+# Mosquitto drops privileges to the `mosquitto` user after startup, so the
+# generated password file must remain readable after bootstrap on Railway's
+# mounted volume.
+chmod 644 "$CONFIG_DIR/passwd"
 
 if [ -n "${MQTT_BOOTSTRAP_USERS:-}" ]; then
   printf '%b\n' "$MQTT_BOOTSTRAP_USERS" | while IFS= read -r entry; do
@@ -37,6 +40,12 @@ if [ -n "${MQTT_BOOTSTRAP_USERS:-}" ]; then
 
     mosquitto_passwd -b "$CONFIG_DIR/passwd" "$username" "$password"
   done
+fi
+
+chmod 644 "$CONFIG_DIR/passwd"
+
+if command -v chown >/dev/null 2>&1; then
+  chown -R mosquitto:mosquitto "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR" 2>/dev/null || true
 fi
 
 exec mosquitto -c "$CONFIG_DIR/mosquitto.conf"
