@@ -67,8 +67,9 @@ Change them before any internet-facing deployment.
 The current hosted test environment we created uses:
 
 - API URL: `https://esp32relay-production.up.railway.app/`
-- MQTT broker public host: `junction.proxy.rlwy.net`
-- MQTT broker public port: `57522`
+- Secure MQTT broker public host: `maglev.proxy.rlwy.net`
+- Secure MQTT broker public port: `44016`
+- Secure MQTT broker private host for Railway services: `fulfilling-essence.railway.internal`
 - Seeded admin email: `admin@solace.local`
 - Seeded admin password: `ChangeMe123!`
 - Seeded service token: `solace-railway-test-token`
@@ -90,12 +91,12 @@ This branch includes a firmware fix that increases the MQTT server, username, pa
 
 If the password field in `/solaceadmin` shows dots, that is a masked placeholder, not proof that a real password is still required.
 
-The currently verified working Railway MQTT device settings are:
+The currently verified working secure Railway MQTT device settings are:
 
-- MQTT server: `junction.proxy.rlwy.net`
-- MQTT port: `57522`
-- MQTT username: blank
-- MQTT password: blank
+- MQTT server: `maglev.proxy.rlwy.net`
+- MQTT port: `44016`
+- MQTT username: `esp32-relay`
+- MQTT password: `BoardPass123`
 - MQTT hostname: `esp32-relay`
 
 ## Phase 1 Compatibility Routes
@@ -392,8 +393,10 @@ curl -X POST https://esp32relay-production.up.railway.app/api/services/switch/tu
 Use this exact order for a live cloud test:
 
 1. Confirm the ESP is connected to Wi-Fi and MQTT using:
-   - MQTT server: `junction.proxy.rlwy.net`
-   - MQTT port: `57522`
+   - MQTT server: `maglev.proxy.rlwy.net`
+   - MQTT port: `44016`
+   - MQTT username: `esp32-relay`
+   - MQTT password: `BoardPass123`
    - MQTT hostname: `esp32-relay`
 2. Open the GUI:
    - `https://esp32relay-production.up.railway.app/`
@@ -449,6 +452,13 @@ ACL behavior:
 - device username `board-b` can only access `homeassistant/switch/board-b/#`
 - backend user `backend-gateway` can access all relay topics
 
+Current Railway secure-broker example:
+
+- broker public TCP endpoint for ESPs: `maglev.proxy.rlwy.net:44016`
+- broker private endpoint for Railway services: `mqtt://fulfilling-essence.railway.internal:1883`
+- gateway broker username: `backend-gateway`
+- demo board broker username: `esp32-relay`
+
 Issue credentials for a board:
 
 ```bash
@@ -480,6 +490,13 @@ MQTT_BOOTSTRAP_USERS=backend-gateway:STRONG_GATEWAY_PASSWORD\nesp32-relay:DEVICE
 
 The startup script will create or update `/mosquitto/config/passwd` automatically on every deploy.
 
+For the current secure Railway deployment, the working value is:
+
+```text
+backend-gateway:StrongGatewayPass123
+esp32-relay:BoardPass123
+```
+
 If you are running Mosquitto manually outside Railway, create or update the password file entry with:
 
 ```bash
@@ -496,8 +513,40 @@ Then set on the `gateway` service:
 
 - `MQTT_USERNAME=backend-gateway`
 - `MQTT_PASSWORD=<strong-random-password>`
+- `MQTT_URL=mqtt://<secure-mosquitto-private-host>:1883`
 
 After changing the password file, reload or restart Mosquitto.
+
+For the current Railway secure broker, the matching gateway variables are:
+
+```text
+MQTT_URL=mqtt://fulfilling-essence.railway.internal:1883
+MQTT_USERNAME=backend-gateway
+MQTT_PASSWORD=StrongGatewayPass123
+```
+
+### How To Add A New Board User
+
+1. Pick a unique board identifier, for example `club-a-main`.
+2. Use that same value as the board `mqtt_hostname` in the middleware and on the ESP.
+3. Add a new line to the secure Mosquitto service variable `MQTT_BOOTSTRAP_USERS`:
+
+```text
+backend-gateway:StrongGatewayPass123
+esp32-relay:BoardPass123
+club-a-main:ClubAMqttPass456
+```
+
+4. Redeploy the secure Mosquitto service.
+5. On the ESP board, set:
+   - MQTT server = secure broker public TCP hostname
+   - MQTT port = secure broker public TCP port
+   - MQTT username = `club-a-main`
+   - MQTT password = `ClubAMqttPass456`
+   - MQTT hostname = `club-a-main`
+6. In the middleware, make sure that board's device record uses `mqtt_hostname = club-a-main`.
+
+Because ACLs key off the MQTT username, a board with username `club-a-main` will only be able to read and write `homeassistant/switch/club-a-main/#`.
 
 ## Seeded Demo Data
 

@@ -61,7 +61,7 @@ In Railway:
 
 Railway will create a database service for you.
 
-## 4. Add Mosquitto
+## 4. Add Secure Mosquitto
 
 Create a dedicated broker service from the repo using:
 
@@ -72,6 +72,7 @@ Create a dedicated broker service from the repo using:
 Then set:
 
 - `RAILWAY_RUN_UID=0`
+- `MQTT_BOOTSTRAP_USERS=backend-gateway:StrongGatewayPass123\nesp32-relay:BoardPass123`
 
 Attach one Railway volume to the Mosquitto service:
 
@@ -89,6 +90,8 @@ The broker image in this repo seeds:
 - `passwd` if missing
 
 on startup, then runs Mosquitto.
+
+The secure broker now bootstraps its users from the `MQTT_BOOTSTRAP_USERS` variable on every deploy.
 
 ## 5. Add the API service
 
@@ -178,6 +181,8 @@ Your ESP relay should use those values as:
 
 - MQTT server = Railway TCP proxy hostname
 - MQTT port = Railway TCP proxy port
+- MQTT username = `esp32-relay`
+- MQTT password = `BoardPass123`
 - MQTT hostname/topic = `esp32-relay`
 
 Important:
@@ -187,10 +192,16 @@ Important:
 - it is not usually the same as the service's normal `*.up.railway.app` HTTP domain
 - it is not guaranteed to be port `1883`
 
-The current verified test endpoint is:
+The current verified secure-broker test endpoint is:
 
-- MQTT server: `junction.proxy.rlwy.net`
-- MQTT port: `57522`
+- MQTT server: `maglev.proxy.rlwy.net`
+- MQTT port: `44016`
+- MQTT username: `esp32-relay`
+- MQTT password: `BoardPass123`
+
+The current verified private broker endpoint for the `gateway` service is:
+
+- `mqtt://fulfilling-essence.railway.internal:1883`
 
 ## 9. Initialize the database once
 
@@ -213,7 +224,7 @@ That creates:
 
 - the admin login
 - the service token
-- the 16 output mappings
+- the 8 output mappings
 
 ## 10. First live test
 
@@ -266,8 +277,6 @@ You can also change the deployment trigger branch per service in Railway setting
 
 Before using this for paying customers, we should still do these:
 
-- add broker authentication to Mosquitto
-- stop using anonymous MQTT
 - generate per-device MQTT credentials
 - rotate the seeded admin password and service token
 - move migrate/seed out of the API start command into a one-time release/init flow
@@ -315,7 +324,32 @@ The broker startup script will create or update `/mosquitto/config/passwd` autom
 
 Then set on the Railway `gateway` service:
 
+- `MQTT_URL=mqtt://fulfilling-essence.railway.internal:1883`
 - `MQTT_USERNAME=backend-gateway`
 - `MQTT_PASSWORD=<the same gateway password used in MQTT_BOOTSTRAP_USERS>`
 
 Then restart or redeploy the secure Mosquitto service after changing `MQTT_BOOTSTRAP_USERS`.
+
+### Add Another Board User
+
+To add another board later:
+
+1. Choose a unique board name, for example `club-a-main`.
+2. Append it to `MQTT_BOOTSTRAP_USERS`:
+
+```text
+backend-gateway:StrongGatewayPass123
+esp32-relay:BoardPass123
+club-a-main:ClubAMqttPass456
+```
+
+3. Redeploy the secure Mosquitto service.
+4. Configure that ESP board with:
+   - MQTT server = the secure Mosquitto TCP proxy hostname
+   - MQTT port = the secure Mosquitto TCP proxy port
+   - MQTT username = `club-a-main`
+   - MQTT password = `ClubAMqttPass456`
+   - MQTT hostname = `club-a-main`
+5. Make sure the device record in the middleware also uses `mqtt_hostname = club-a-main`.
+
+Because the ACL uses `%u`, that board will only be able to access `homeassistant/switch/club-a-main/#`.

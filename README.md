@@ -26,8 +26,8 @@ This repo now also contains the new backend middleware in [backend/README.md](/U
 For the current hosted test environment:
 
 - API URL: `https://esp32relay-production.up.railway.app/`
-- MQTT broker public host: `junction.proxy.rlwy.net`
-- MQTT broker public port: `57522`
+- Secure MQTT broker public host: `maglev.proxy.rlwy.net`
+- Secure MQTT broker public port: `44016`
 - Middleware admin email: `admin@solace.local`
 - Middleware admin password: `ChangeMe123!`
 - Middleware service token: `solace-railway-test-token`
@@ -172,12 +172,12 @@ Optional - RF Receiver:
   - **MQTT Hostname**: topic namespace used under `homeassistant/switch/<mqtt_hostname>/...`
 5. Click "Save" - the ESP32 will connect to your WiFi
 
-For the current Railway test broker, use:
+For the current Railway secure broker, use:
 
-- MQTT Server: `junction.proxy.rlwy.net`
-- MQTT Port: `57522`
-- MQTT User: blank
-- MQTT Password: blank
+- MQTT Server: `maglev.proxy.rlwy.net`
+- MQTT Port: `44016`
+- MQTT User: `esp32-relay`
+- MQTT Password: `BoardPass123`
 - MQTT Hostname: `esp32-relay`
 
 ### 2. Access Web Interface
