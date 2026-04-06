@@ -63,28 +63,32 @@ Railway will create a database service for you.
 
 ## 4. Add Mosquitto
 
-Create a new empty service for the broker.
-
-Use this source:
+Create a dedicated broker service from the repo using:
 
 - Repo: your GitHub repo
 - Branch: `codex-esp32-middleware`
-- Root Directory: `backend`
+- Root Directory: `backend/docker/mosquitto`
 
-Then in service settings:
+Then set:
 
-- ensure the Dockerfile is used from `backend/Dockerfile`
-- set the start command to:
+- `RAILWAY_RUN_UID=0`
 
-```bash
-sh -c "mkdir -p /mosquitto/data /mosquitto/log && mosquitto -c /app/docker/mosquitto/mosquitto.conf"
-```
+Attach one Railway volume to the Mosquitto service:
 
-Current note:
+- mount path: `/mosquitto/config`
 
-- the existing Mosquitto config allows anonymous access
-- that is okay for a controlled first online test
-- before real rollout we should replace this with broker auth and per-device credentials
+Why this volume matters:
+
+- it stores the dynamic `passwd` file
+- it keeps the broker config and ACL file persistent across redeploys
+
+The broker image in this repo seeds:
+
+- `mosquitto.conf`
+- `aclfile`
+- `passwd` if missing
+
+on startup, then runs Mosquitto.
 
 ## 5. Add the API service
 
@@ -305,3 +309,12 @@ Then set on the Railway `gateway` service:
 
 - `MQTT_USERNAME=backend-gateway`
 - `MQTT_PASSWORD=<strong-random-password>`
+
+For Railway, the practical way to run those commands is to open a shell in the Mosquitto service and run them against the mounted config volume:
+
+```bash
+mosquitto_passwd -b /mosquitto/config/passwd backend-gateway <strong-random-password>
+mosquitto_passwd -b /mosquitto/config/passwd <mqtt_hostname> <generated-password>
+```
+
+Then restart the Mosquitto service so it reloads the password file.
