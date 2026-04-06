@@ -356,17 +356,20 @@ function consoleHtml() {
       }
     }
 
-    function authHeaders(useAdmin = true) {
+    function authHeaders(useAdmin = true, withJson = true) {
+      const headers = {};
       if (!useAdmin) {
-        return {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + document.getElementById("service-token").value.trim()
-        };
+        if (withJson) {
+          headers["Content-Type"] = "application/json";
+        }
+        headers["Authorization"] = "Bearer " + document.getElementById("service-token").value.trim();
+        return headers;
       }
-      return {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + state.token
-      };
+      if (withJson) {
+        headers["Content-Type"] = "application/json";
+      }
+      headers["Authorization"] = "Bearer " + state.token;
+      return headers;
     }
 
     function profileActions(profileType) {
@@ -577,7 +580,7 @@ function consoleHtml() {
 
       const response = await fetch("/v1/devices/" + id, {
         method: "DELETE",
-        headers: authHeaders(true)
+        headers: authHeaders(true, false)
       });
       const data = await response.json();
       if (!response.ok) {
