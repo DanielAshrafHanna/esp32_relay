@@ -376,6 +376,14 @@ export class OutputService {
     return this.getDevice(principal, device.id);
   }
 
+  async deleteDevice(principal: AuthPrincipal, deviceId: string): Promise<DeviceRecord> {
+    const device = await this.getDevice(principal, deviceId);
+
+    await this.pool.query("delete from devices where id = $1", [device.id]);
+
+    return device;
+  }
+
   private resolveCustomerId(principal: AuthPrincipal, customerId?: string): string {
     if (customerId) {
       assertCustomerAccess(principal, customerId);

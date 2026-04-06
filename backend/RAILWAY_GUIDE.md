@@ -382,3 +382,13 @@ The response includes:
 - `mqttBootstrapEntry`
 
 Take that `mqttBootstrapEntry`, append it to `MQTT_BOOTSTRAP_USERS`, redeploy the secure broker, then enter the same username/password on the ESP.
+
+## Removing A Board
+
+If you no longer want a board in the middleware:
+
+1. Delete it from the middleware console using the board header `Delete Board` action, or call `DELETE /v1/devices/:id`.
+2. Remove that board's `username:password` line from the secure broker variable `MQTT_BOOTSTRAP_USERS`.
+3. Redeploy the secure Mosquitto service.
+
+The middleware delete removes the device and its outputs from PostgreSQL. The extra Railway variable edit is still needed because the broker user list lives in Railway service variables, not in PostgreSQL.

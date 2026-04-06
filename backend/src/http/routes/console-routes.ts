@@ -255,7 +255,7 @@ function consoleHtml() {
         <button class="secondary" id="load-devices">Load Devices</button>
         <button class="secondary" id="load-outputs">Load Outputs</button>
       </div>
-      <div id="auth-status" class="status">No active admin session yet.</div>
+      <div id="auth-status" class="status">No active admin session yet. Load Devices fetches board-level records like title, MQTT hostname, and enabled status. Load Outputs fetches the per-relay rows, profiles, and last known states.</div>
     </section>
 
     <section class="card" style="margin-bottom:20px;">
@@ -323,7 +323,7 @@ function consoleHtml() {
     <section class="card">
       <div class="toolbar">
         <h2>Relay Boards</h2>
-        <div class="muted">Each board has its own title, enabled toggle, and grouped relay rows.</div>
+        <div class="muted">Load Devices shows board sections first. Load Outputs fills in each board's relay rows, profile settings, and last known states.</div>
       </div>
       <div id="device-sections" class="device-stack"></div>
       <div id="outputs-status" class="status">Load outputs to begin.</div>
@@ -396,7 +396,7 @@ function consoleHtml() {
 
     function renderOutputs() {
       deviceSections.innerHTML = "";
-      if (!state.outputs.length) {
+      if (!state.outputs.length && !state.devices.length) {
         deviceSections.innerHTML = '<div class="muted">No outputs loaded yet.</div>';
         return;
       }
@@ -472,6 +472,7 @@ function consoleHtml() {
                   Enable this relay board for webhook/API commands
                 </label>
                 <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
+                <button class="warn delete-device-btn" data-device-id="\${device.id}" data-device-name="\${device.displayName || device.deviceKey}">Delete Board</button>
               </div>
             </div>
           </div>
@@ -526,6 +527,7 @@ function consoleHtml() {
       if (!silent) {
         setStatus(authStatus, "Loaded " + state.devices.length + " device(s).", "ok");
       }
+      renderOutputs();
     }
 
     async function loadOutputs() {
@@ -565,6 +567,27 @@ function consoleHtml() {
         : output);
       renderOutputs();
       setStatus(outputsStatus, "Saved board " + data.displayName + ".", "ok");
+    }
+
+    async function deleteDevice(id, name) {
+      const confirmed = window.confirm('Delete board "' + name + '"? This removes the board, its relay outputs, credentials, and command history references tied by cascade.');
+      if (!confirmed) {
+        return;
+      }
+
+      const response = await fetch("/v1/devices/" + id, {
+        method: "DELETE",
+        headers: authHeaders(true)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to delete board");
+      }
+
+      state.devices = state.devices.filter((device) => device.id !== id);
+      state.outputs = state.outputs.filter((output) => output.deviceId !== id);
+      renderOutputs();
+      setStatus(outputsStatus, "Deleted board " + (data.deleted?.displayName || name) + ".", "ok");
     }
 
     function collectRowValues(id) {
@@ -721,6 +744,14 @@ function consoleHtml() {
       if (target.classList.contains("save-device-btn")) {
         try {
           await saveDevice(target.dataset.deviceId);
+        } catch (error) {
+          setStatus(outputsStatus, error.message, "error");
+        }
+      }
+
+      if (target.classList.contains("delete-device-btn")) {
+        try {
+          await deleteDevice(target.dataset.deviceId, target.dataset.deviceName || "this board");
         } catch (error) {
           setStatus(outputsStatus, error.message, "error");
         }

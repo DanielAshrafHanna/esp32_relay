@@ -206,6 +206,7 @@ Core native routes:
 - `GET /v1/me`
 - `GET /v1/devices`
 - `GET /v1/devices/:id`
+- `DELETE /v1/devices/:id`
 - `GET /v1/outputs`
 - `GET /v1/outputs/:id`
 - `POST /v1/outputs/:id/actions`
@@ -336,6 +337,26 @@ For the easiest operator flow:
 6. Click `Save` on that row
 7. Use the row action buttons or the `Webhook Tester` section to trigger it
 
+### Load Devices vs Load Outputs
+
+The console separates board-level data from relay-level data:
+
+- `Load Devices`
+  - fetches the relay board records
+  - shows board sections, titles, MQTT hostnames, availability, and enabled/disabled status
+  - does not need to fetch every relay row
+- `Load Outputs`
+  - fetches the individual relay outputs for all loaded boards
+  - fills in each relay row, profile, entity ID, pulse setting, and last known state
+
+Why it can feel like you need both:
+
+- a board is the physical ESP unit
+- an output is one relay channel on that board
+- the UI first learns which boards exist, then fills in the relays that belong to them
+
+The console now renders board sections after `Load Devices`, even before outputs are loaded, so the separation is easier to see.
+
 ## Board Onboarding Flow
 
 The console now includes a `Board Onboarding` card for creating a new relay board without manually creating DB rows first.
@@ -406,6 +427,8 @@ Board titles now default to the device `mqtt_hostname`, which matches the `MQTT 
 If you set a custom board title in the middleware console, that custom title overrides the MQTT hostname fallback.
 
 If you later want the board title to originate from the ESP `/solaceadmin` page and sync automatically into middleware, that can be added as a follow-up feature.
+
+You can also delete a board directly from its section header. Deleting a board removes the device record and cascades to its outputs and broker credentials stored in the middleware database. If the board also has a broker user in Railway `MQTT_BOOTSTRAP_USERS`, remove that line there too and redeploy the secure broker.
 
 ## Current Test Webhooks
 
