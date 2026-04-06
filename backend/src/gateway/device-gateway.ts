@@ -21,6 +21,7 @@ interface GatewayCommandRow {
 export class DeviceGateway {
   private static readonly DISCOVERY_AVAILABILITY_TOPIC = "homeassistant/switch/+/availability";
   private static readonly DISCOVERY_STATE_TOPIC = "homeassistant/switch/+/+/state";
+  private static readonly DISCOVERY_TELEMETRY_TOPIC = "homeassistant/switch/+/telemetry";
   private readonly env = getEnv();
   private mqttClient: MqttClient | null = null;
   private running = false;
@@ -110,6 +111,7 @@ export class DeviceGateway {
     const desiredTopics = new Set<string>([
       DeviceGateway.DISCOVERY_AVAILABILITY_TOPIC,
       DeviceGateway.DISCOVERY_STATE_TOPIC,
+      DeviceGateway.DISCOVERY_TELEMETRY_TOPIC,
     ]);
     const outputs = result.rows.map((row) => mapOutputRow(row as Record<string, unknown>));
     this.outputTopicMap.clear();
@@ -293,6 +295,11 @@ export class DeviceGateway {
   }
 
   private async handleMessage(topic: string, payload: string) {
+    if (topic.endsWith("/telemetry")) {
+      await this.handleTelemetry(topic, payload);
+      return;
+    }
+
     if (topic.endsWith("/availability")) {
       await this.handleAvailability(topic, payload);
       return;
@@ -358,6 +365,63 @@ export class DeviceGateway {
     );
 
     await this.advanceCommandIfMatched(output.id, normalizedState, topic, payload);
+  }
+
+  private async handleTelemetry(topic: string, payload: string) {
+    const match = topic.match(/^homeassistant\/switch\/([^/]+)\/telemetry$/);
+    if (!match) {
+      return;
+    }
+
+    const hostname = match[1];
+    let telemetry: Record<string, unknown>;
+    try {
+      telemetry = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      telemetry = { raw_payload: payload };
+    }
+
+    const result = await this.pool.query(
+      `
+        update devices
+        set
+          metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{telemetry}', $2::jsonb, true),
+          last_seen_at = now(),
+          availability = 'online',
+          updated_at = now()
+        where mqtt_hostname = $1
+        returning id
+      `,
+      [hostname, JSON.stringify(telemetry)],
+    );
+
+    if (!result.rowCount) {
+      await this.pool.query(
+        `
+          insert into discovered_devices (
+            mqtt_hostname, availability, first_seen_at, last_seen_at, last_payload
+          )
+          values ($1, 'online', now(), now(), $2::jsonb)
+          on conflict (mqtt_hostname)
+          do update set
+            availability = 'online',
+            last_seen_at = now(),
+            last_payload = excluded.last_payload
+        `,
+        [hostname, JSON.stringify({ topic, telemetry })],
+      );
+      return;
+    }
+
+    await this.pool.query(
+      `
+        insert into device_events (id, device_id, output_id, event_type, payload)
+        select $1, d.id, null, 'mqtt.telemetry', $3::jsonb
+        from devices d
+        where d.mqtt_hostname = $2
+      `,
+      [createId(), hostname, JSON.stringify({ topic, telemetry })],
+    );
   }
 
   private async recordDiscoveredBoard(hostname: string, availability: "online" | "offline", payload: string) {

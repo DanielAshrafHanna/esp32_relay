@@ -26,6 +26,19 @@ export type CompatibilityService =
   | "close_cover"
   | "stop_cover";
 
+export interface DeviceTelemetry {
+  uptimeS: number | null;
+  wifiRssi: number | null;
+  wifiSsid: string | null;
+  ip: string | null;
+  mqttConnected: boolean | null;
+  freeHeap: number | null;
+  largestFreeBlock: number | null;
+  wifiReconnectAttempts: number | null;
+  mqttReconnectAttempts: number | null;
+  lastMqttError: number | null;
+}
+
 export interface AuthPrincipal {
   kind: AuthPrincipalKind;
   subjectId: string;
@@ -56,6 +69,7 @@ export interface DeviceRecord {
   desiredEnabled: boolean;
   availability: DeviceAvailability;
   lastSeenAt: string | null;
+  telemetry: DeviceTelemetry | null;
 }
 
 export interface OutputRecord {

@@ -108,7 +108,7 @@ export class OutputService {
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
           coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
-          active, desired_enabled, availability, last_seen_at
+          active, desired_enabled, availability, last_seen_at, metadata
         from devices
         where customer_id = any($1::uuid[])
         order by device_key
@@ -124,7 +124,7 @@ export class OutputService {
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
           coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
-          active, desired_enabled, availability, last_seen_at
+          active, desired_enabled, availability, last_seen_at, metadata
         from devices
         where id = $1
       `,

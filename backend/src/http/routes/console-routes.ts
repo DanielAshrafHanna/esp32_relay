@@ -432,6 +432,48 @@ function consoleHtml() {
       return defaultCompatDomain(profileType) + "." + output.mqttHostname + ".relay" + output.channel;
     }
 
+    function formatTelemetryUptime(seconds) {
+      if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
+        return "Uptime: --";
+      }
+
+      const total = Number(seconds);
+      const days = Math.floor(total / 86400);
+      const hours = Math.floor((total % 86400) / 3600);
+      const minutes = Math.floor((total % 3600) / 60);
+      if (days > 0) {
+        return "Uptime: " + days + "d " + hours + "h";
+      }
+      if (hours > 0) {
+        return "Uptime: " + hours + "h " + minutes + "m";
+      }
+      return "Uptime: " + minutes + "m";
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === null || bytes === undefined || Number.isNaN(Number(bytes))) {
+        return "--";
+      }
+      const value = Number(bytes);
+      if (value >= 1024 * 1024) {
+        return (value / (1024 * 1024)).toFixed(1) + " MB";
+      }
+      if (value >= 1024) {
+        return Math.round(value / 1024) + " KB";
+      }
+      return value + " B";
+    }
+
+    function telemetryBadges(device) {
+      const telemetry = device.telemetry || {};
+      return [
+        formatTelemetryUptime(telemetry.uptimeS),
+        "RSSI: " + (telemetry.wifiRssi ?? "--"),
+        "Heap: " + formatBytes(telemetry.freeHeap),
+        "MQTT: " + (telemetry.mqttConnected === null || telemetry.mqttConnected === undefined ? "--" : (telemetry.mqttConnected ? "connected" : "down"))
+      ];
+    }
+
     function renderOutputs() {
       deviceSections.innerHTML = "";
       if (!state.outputs.length && !state.devices.length) {
@@ -499,6 +541,7 @@ function consoleHtml() {
                 <span class="mono">MQTT: \${device.mqttHostname}</span>
                 <span>Availability: \${device.availability}</span>
                 <span>Key: \${device.deviceKey}</span>
+                \${telemetryBadges(device).map((badge) => '<span>' + badge + '</span>').join("")}
               </div>
             </div>
             <div style="min-width:320px;">

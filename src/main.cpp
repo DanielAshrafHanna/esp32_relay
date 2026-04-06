@@ -8,6 +8,7 @@
 #include <LittleFS.h>
 #include <Preferences.h>
 #include <RCSwitch.h>
+#include <esp_heap_caps.h>
 #include "config.h"
 #include "relay_control.h"
 
@@ -94,6 +95,7 @@ unsigned long getMqttRetryInterval();
 void reconnectMQTT();
 void publishDiscovery();
 void publishState(int relayIndex);
+void publishTelemetry(bool force = false);
 void saveConfigCallback();
 void saveRelayStates();
 void restoreRelayStates();
@@ -108,6 +110,11 @@ bool shouldSaveConfig = false;
 bool relayStatesDirty = false;
 unsigned long relayStatesDirtyAt = 0;
 const unsigned long RELAY_STATE_SAVE_DEBOUNCE_MS = 1000;
+const unsigned long TELEMETRY_PUBLISH_INTERVAL_MS = 60000;
+unsigned long lastTelemetryPublishAt = 0;
+unsigned long totalWifiReconnectAttempts = 0;
+unsigned long totalMqttReconnectAttempts = 0;
+int lastMqttErrorCode = 0;
 
 struct RequestBodyBuffer {
     char* data = nullptr;
@@ -181,6 +188,7 @@ void loop() {
             reconnectMQTT();
         }
         mqttClient.loop();
+        publishTelemetry();
     }
     
     // Check RF signals
@@ -296,6 +304,7 @@ void checkWiFiConnection() {
         lastReconnectAttempt = currentMillis;
         wifiReconnecting = true;
         reconnectStartTime = currentMillis;
+        totalWifiReconnectAttempts++;
         
         // NON-BLOCKING: Just initiate connection, event will notify when ready
         WiFi.mode(WIFI_AP_STA);
@@ -318,6 +327,7 @@ void checkWiFiConnection() {
     lastReconnectAttempt = currentMillis;
     wifiReconnecting = true;
     reconnectStartTime = currentMillis;
+    totalWifiReconnectAttempts++;
     
     // NON-BLOCKING: Just initiate, event will fire when connected
     WiFi.begin();
@@ -621,6 +631,7 @@ void reconnectMQTT() {
     }
     
     mqttReconnectAttempts++;
+    totalMqttReconnectAttempts++;
     Serial.printf("[MQTT] Connection attempt %d (next retry in %lus if fails)...\n", 
                  mqttReconnectAttempts, getMqttRetryInterval() / 1000);
     
@@ -638,6 +649,7 @@ void reconnectMQTT() {
     
     if (connected) {
         Serial.println("[MQTT] Connected!");
+        lastMqttErrorCode = 0;
         
         // Reset counters on success
         mqttReconnectAttempts = 0;
@@ -674,8 +686,10 @@ void reconnectMQTT() {
                 yield();
             }
         }
+        publishTelemetry(true);
     } else {
         int rc = mqttClient.state();
+        lastMqttErrorCode = rc;
         Serial.printf("[MQTT] Failed, rc=%d ", rc);
         
         // Decode error for better diagnostics
@@ -735,6 +749,41 @@ void publishState(int relayIndex) {
     snprintf(topic, sizeof(topic), "%s%s/relay%d/state", MQTT_TOPIC_PREFIX, mqtt_hostname, relayIndex + 1);
     const char* state = relayControl.getState(relayIndex) ? "ON" : "OFF";
     mqttClient.publish(topic, state, true);
+}
+
+void publishTelemetry(bool force) {
+    if (!mqttClient.connected()) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if (!force && now - lastTelemetryPublishAt < TELEMETRY_PUBLISH_INTERVAL_MS) {
+        return;
+    }
+
+    StaticJsonDocument<512> doc;
+    doc["uptime_s"] = now / 1000;
+    doc["wifi_rssi"] = WiFi.RSSI();
+    doc["wifi_ssid"] = WiFi.SSID();
+    doc["ip"] = WiFi.localIP().toString();
+    doc["mqtt_connected"] = mqttClient.connected();
+    doc["free_heap"] = ESP.getFreeHeap();
+    doc["largest_free_block"] = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+    doc["wifi_reconnect_attempts"] = totalWifiReconnectAttempts;
+    doc["mqtt_reconnect_attempts"] = totalMqttReconnectAttempts;
+    doc["last_mqtt_error"] = lastMqttErrorCode;
+
+    char topic[160];
+    snprintf(topic, sizeof(topic), "%s%s/telemetry", MQTT_TOPIC_PREFIX, mqtt_hostname);
+
+    char payload[512];
+    size_t payloadLength = serializeJson(doc, payload, sizeof(payload));
+    if (payloadLength == 0 || payloadLength >= sizeof(payload)) {
+        return;
+    }
+
+    mqttClient.publish(topic, payload, true);
+    lastTelemetryPublishAt = now;
 }
 
 void publishDiscovery() {

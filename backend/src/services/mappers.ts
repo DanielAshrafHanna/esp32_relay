@@ -1,4 +1,4 @@
-import type { CommandRecord, DeviceRecord, OutputRecord } from "../types/domain.js";
+import type { CommandRecord, DeviceRecord, DeviceTelemetry, OutputRecord } from "../types/domain.js";
 
 function parseJsonObject<T>(value: unknown, fallback: T): T {
   if (!value) {
@@ -43,6 +43,48 @@ export function mapOutputRow(row: Record<string, unknown>): OutputRecord {
 }
 
 export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
+  const metadata = parseJsonObject<Record<string, unknown>>(row.metadata, {});
+  const telemetrySource = metadata.telemetry as Record<string, unknown> | undefined;
+  const telemetry =
+    telemetrySource && typeof telemetrySource === "object"
+      ? ({
+          uptimeS:
+            telemetrySource.uptime_s === undefined || telemetrySource.uptime_s === null
+              ? null
+              : Number(telemetrySource.uptime_s),
+          wifiRssi:
+            telemetrySource.wifi_rssi === undefined || telemetrySource.wifi_rssi === null
+              ? null
+              : Number(telemetrySource.wifi_rssi),
+          wifiSsid: telemetrySource.wifi_ssid ? String(telemetrySource.wifi_ssid) : null,
+          ip: telemetrySource.ip ? String(telemetrySource.ip) : null,
+          mqttConnected:
+            telemetrySource.mqtt_connected === undefined || telemetrySource.mqtt_connected === null
+              ? null
+              : Boolean(telemetrySource.mqtt_connected),
+          freeHeap:
+            telemetrySource.free_heap === undefined || telemetrySource.free_heap === null
+              ? null
+              : Number(telemetrySource.free_heap),
+          largestFreeBlock:
+            telemetrySource.largest_free_block === undefined || telemetrySource.largest_free_block === null
+              ? null
+              : Number(telemetrySource.largest_free_block),
+          wifiReconnectAttempts:
+            telemetrySource.wifi_reconnect_attempts === undefined || telemetrySource.wifi_reconnect_attempts === null
+              ? null
+              : Number(telemetrySource.wifi_reconnect_attempts),
+          mqttReconnectAttempts:
+            telemetrySource.mqtt_reconnect_attempts === undefined || telemetrySource.mqtt_reconnect_attempts === null
+              ? null
+              : Number(telemetrySource.mqtt_reconnect_attempts),
+          lastMqttError:
+            telemetrySource.last_mqtt_error === undefined || telemetrySource.last_mqtt_error === null
+              ? null
+              : Number(telemetrySource.last_mqtt_error),
+        } satisfies DeviceTelemetry)
+      : null;
+
   return {
     id: String(row.id),
     customerId: String(row.customer_id),
@@ -56,6 +98,7 @@ export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
     desiredEnabled: Boolean(row.desired_enabled),
     availability: row.availability as DeviceRecord["availability"],
     lastSeenAt: row.last_seen_at ? String(row.last_seen_at) : null,
+    telemetry,
   };
 }
 
