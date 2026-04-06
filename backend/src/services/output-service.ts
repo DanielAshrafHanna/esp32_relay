@@ -203,6 +203,7 @@ export class OutputService {
     const output = await this.getOutput(principal, outputId);
     const resolved = resolveOutputProfileConfig({
       deviceKey: output.deviceKey,
+      entityNamespace: output.mqttHostname,
       channel: output.channel,
       existing: output,
       profileType: input.profileType,
@@ -290,6 +291,7 @@ export class OutputService {
       const existing = existingByChannel.get(config.channel);
       const resolved = resolveOutputProfileConfig({
         deviceKey: device.deviceKey,
+        entityNamespace: device.mqttHostname,
         channel: config.channel,
         existing,
         profileType: config.profileType,

@@ -74,8 +74,8 @@ function defaultDisplayName(channel: number): string {
   return `Relay ${channel}`;
 }
 
-function buildDefaultCompatEntityId(deviceKey: string, channel: number, compatDomain: string): string {
-  return `${compatDomain}.${slugify(deviceKey)}_relay_${channel}`;
+function buildDefaultCompatEntityId(entityNamespace: string, channel: number, compatDomain: string): string {
+  return `${compatDomain}.${slugify(entityNamespace)}.relay${channel}`;
 }
 
 export function presetForProfile(profileType: OutputProfileType): OutputProfilePreset {
@@ -84,6 +84,7 @@ export function presetForProfile(profileType: OutputProfileType): OutputProfileP
 
 export function resolveOutputProfileConfig(input: {
   deviceKey: string;
+  entityNamespace?: string;
   channel: number;
   existing?: OutputRecord;
   profileType?: OutputProfileType;
@@ -100,6 +101,7 @@ export function resolveOutputProfileConfig(input: {
   const preset = presetForProfile(effectiveProfileType);
   const displayName = input.displayName ?? input.existing?.displayName ?? defaultDisplayName(input.channel);
   const compatDomain = input.compatDomain ?? (input.profileType ? preset.compatDomain : input.existing?.compatDomain ?? preset.compatDomain);
+  const entityNamespace = input.entityNamespace ?? input.existing?.mqttHostname ?? input.deviceKey;
 
   return {
     profileType: effectiveProfileType,
@@ -119,8 +121,8 @@ export function resolveOutputProfileConfig(input: {
     compatEntityId:
       input.compatEntityId ??
       (input.profileType
-        ? buildDefaultCompatEntityId(input.deviceKey, input.channel, compatDomain)
-        : input.existing?.compatEntityId ?? buildDefaultCompatEntityId(input.deviceKey, input.channel, compatDomain)),
+        ? buildDefaultCompatEntityId(entityNamespace, input.channel, compatDomain)
+        : input.existing?.compatEntityId ?? buildDefaultCompatEntityId(entityNamespace, input.channel, compatDomain)),
     serviceMap: input.serviceMap ?? (input.profileType ? preset.serviceMap : input.existing?.serviceMap ?? preset.serviceMap),
   };
 }

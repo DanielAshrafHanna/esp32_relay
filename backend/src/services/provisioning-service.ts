@@ -109,7 +109,7 @@ export class ProvisioningService {
       siteId: input.siteId,
       deviceKey,
       mqttHostname,
-      displayName: input.displayName,
+      displayName: input.displayName || mqttHostname,
       transportVersion: input.transportVersion ?? "legacy_ha",
     });
 
@@ -212,7 +212,7 @@ export class ProvisioningService {
       siteId: input.siteId,
       deviceKey: input.deviceKey ?? normalized,
       mqttHostname: normalized,
-      displayName: input.displayName,
+      displayName: input.displayName || normalized,
       transportVersion: input.transportVersion,
       channelCount: input.channelCount ?? Math.min(Math.max(discovered.highestChannel || 8, 1), 8),
     });

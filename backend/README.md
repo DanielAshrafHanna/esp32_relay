@@ -429,6 +429,12 @@ What this means operationally:
 
 This is the preferred workflow for new boards because it feels closer to automatic discovery while still keeping the final board claim explicit and safe.
 
+Default entity IDs for newly claimed boards now use the MQTT hostname namespace:
+
+- light profile: `light.dany.relay1`
+- gate profile: `lock.dany.relay1`
+- generic relay profile: `switch.dany.relay1`
+
 Native discovery routes:
 
 - `GET /v1/discovery/boards`
