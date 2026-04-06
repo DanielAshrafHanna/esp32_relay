@@ -270,3 +270,38 @@ Before using this for paying customers, we should still do these:
 - replace seeded/default credentials
 - add backups and production secrets hygiene
 - make relay onboarding easier from the GUI
+
+## Per-Board MQTT Auth
+
+For real rollout, each relay board should have:
+
+- MQTT username = that board's `mqtt_hostname`
+- MQTT password = generated per board
+
+The Mosquitto ACL file in this repo scopes each username to its own topic namespace.
+
+Recommended production users:
+
+- `backend-gateway`
+  - used by the middleware gateway service
+  - has access to all relay topics
+- one user per board
+  - username exactly matches `mqtt_hostname`
+  - password unique per board
+
+After issuing a board credential from the middleware, add it to Mosquitto with:
+
+```bash
+mosquitto_passwd -b backend/docker/mosquitto/passwd <mqtt_hostname> <generated-password>
+```
+
+And add the backend user with:
+
+```bash
+mosquitto_passwd -b backend/docker/mosquitto/passwd backend-gateway <strong-random-password>
+```
+
+Then set on the Railway `gateway` service:
+
+- `MQTT_USERNAME=backend-gateway`
+- `MQTT_PASSWORD=<strong-random-password>`

@@ -1,0 +1,5 @@
+user backend-gateway
+topic readwrite homeassistant/switch/#
+topic readwrite solace/v1/#
+
+pattern readwrite homeassistant/switch/%u/#

@@ -427,6 +427,58 @@ For this architecture, use a host that supports persistent container services:
 
 Vercel is not a good primary fit for the current architecture because the gateway is a continuously running worker and the broker is a persistent service. For a first hosted version, use a container-friendly platform such as Railway, Render, Fly.io, or a VPS.
 
+## Secure MQTT Per Board
+
+For production, do not keep MQTT anonymous.
+
+The secure model in this repo is:
+
+- one MQTT username/password per relay board
+- the MQTT username is the board `mqtt_hostname`
+- Mosquitto ACLs allow each board to access only its own topic namespace
+- the backend gateway uses its own broker account with broader access
+
+Broker files:
+
+- config: [backend/docker/mosquitto/mosquitto.conf](/Users/danielhanna/Desktop/Solace%20Codes/esp32_rellay/backend/docker/mosquitto/mosquitto.conf)
+- ACLs: [backend/docker/mosquitto/aclfile](/Users/danielhanna/Desktop/Solace%20Codes/esp32_rellay/backend/docker/mosquitto/aclfile)
+
+ACL behavior:
+
+- device username `board-a` can only access `homeassistant/switch/board-a/#`
+- device username `board-b` can only access `homeassistant/switch/board-b/#`
+- backend user `backend-gateway` can access all relay topics
+
+Issue credentials for a board:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/v1/provisioning/device-credentials \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"device_id":"<device-id>"}'
+```
+
+The returned username will be the board `mqtt_hostname`. The returned password is what you put into the ESP `/solaceadmin` page and also into the Mosquitto password file.
+
+Create or update the Mosquitto password file entry:
+
+```bash
+mosquitto_passwd -b backend/docker/mosquitto/passwd <mqtt_hostname> <generated-password>
+```
+
+Create the backend gateway broker user too:
+
+```bash
+mosquitto_passwd -b backend/docker/mosquitto/passwd backend-gateway <strong-random-password>
+```
+
+Then set on the `gateway` service:
+
+- `MQTT_USERNAME=backend-gateway`
+- `MQTT_PASSWORD=<strong-random-password>`
+
+After changing the password file, reload or restart Mosquitto.
+
 ## Seeded Demo Data
 
 The seed script creates:
