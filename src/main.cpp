@@ -98,6 +98,7 @@ void reconnectMQTT();
 void publishDiscovery();
 void publishState(int relayIndex);
 void publishTelemetry(bool force = false);
+void publishDeviceTrace(const char* eventType, int relayIndex, const char* topic, const char* payload, bool stateAfter);
 void processMqttRecovery();
 void saveConfigCallback();
 void saveRelayStates();
@@ -837,8 +838,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
         char expectedTopic[160];
         snprintf(expectedTopic, sizeof(expectedTopic), "%s%s/relay%d/set", MQTT_TOPIC_PREFIX, mqtt_hostname, i + 1);
         if (strcmp(topic, expectedTopic) == 0) {
+            publishDeviceTrace("command_received", i, topic, message, relayControl.getState(i));
             bool newState = strcmp(message, "ON") == 0;
             relayControl.setState(i, newState);
+            publishDeviceTrace("relay_applied", i, topic, message, relayControl.getState(i));
             publishState(i);
             scheduleRelayStateSave();
             break;
@@ -888,6 +891,31 @@ void publishTelemetry(bool force) {
 
     mqttClient.publish(topic, payload, true);
     lastTelemetryPublishAt = now;
+}
+
+void publishDeviceTrace(const char* eventType, int relayIndex, const char* topic, const char* payload, bool stateAfter) {
+    if (!mqttClient.connected()) {
+        return;
+    }
+
+    StaticJsonDocument<320> doc;
+    doc["event_type"] = eventType;
+    doc["relay"] = relayIndex + 1;
+    doc["command_topic"] = topic;
+    doc["command_payload"] = payload;
+    doc["state_after"] = stateAfter ? "ON" : "OFF";
+    doc["uptime_ms"] = millis();
+
+    char traceTopic[160];
+    snprintf(traceTopic, sizeof(traceTopic), "%s%s/trace", MQTT_TOPIC_PREFIX, mqtt_hostname);
+
+    char tracePayload[320];
+    size_t payloadLength = serializeJson(doc, tracePayload, sizeof(tracePayload));
+    if (payloadLength == 0 || payloadLength >= sizeof(tracePayload)) {
+        return;
+    }
+
+    mqttClient.publish(traceTopic, tracePayload, false);
 }
 
 void publishDiscovery() {

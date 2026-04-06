@@ -23,6 +23,7 @@ export class DeviceGateway {
   private static readonly DISCOVERY_AVAILABILITY_TOPIC = "homeassistant/switch/+/availability";
   private static readonly DISCOVERY_STATE_TOPIC = "homeassistant/switch/+/+/state";
   private static readonly DISCOVERY_TELEMETRY_TOPIC = "homeassistant/switch/+/telemetry";
+  private static readonly DISCOVERY_TRACE_TOPIC = "homeassistant/switch/+/trace";
   private static readonly COMMAND_QUEUE_CHANNEL = "solace_command_queue";
   private readonly env = getEnv();
   private mqttClient: MqttClient | null = null;
@@ -142,6 +143,7 @@ export class DeviceGateway {
       DeviceGateway.DISCOVERY_AVAILABILITY_TOPIC,
       DeviceGateway.DISCOVERY_STATE_TOPIC,
       DeviceGateway.DISCOVERY_TELEMETRY_TOPIC,
+      DeviceGateway.DISCOVERY_TRACE_TOPIC,
     ]);
     const outputs = result.rows.map((row) => mapOutputRow(row as Record<string, unknown>));
     this.outputTopicMap.clear();
@@ -371,6 +373,11 @@ export class DeviceGateway {
       return;
     }
 
+    if (topic.endsWith("/trace")) {
+      await this.handleTrace(topic, payload);
+      return;
+    }
+
     if (topic.endsWith("/availability")) {
       await this.handleAvailability(topic, payload);
       return;
@@ -492,6 +499,68 @@ export class DeviceGateway {
         where d.mqtt_hostname = $2
       `,
       [createId(), hostname, JSON.stringify({ topic, telemetry })],
+    );
+  }
+
+  private async handleTrace(topic: string, payload: string) {
+    const match = topic.match(/^homeassistant\/switch\/([^/]+)\/trace$/);
+    if (!match) {
+      return;
+    }
+
+    const hostname = match[1];
+    let tracePayload: Record<string, unknown>;
+    try {
+      tracePayload = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      tracePayload = { raw_payload: payload };
+    }
+
+    const traceWithReceivedAt = {
+      ...tracePayload,
+      received_at: new Date().toISOString(),
+    };
+
+    const result = await this.pool.query(
+      `
+        update devices
+        set
+          metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{last_trace}', $2::jsonb, true),
+          last_seen_at = now(),
+          availability = 'online',
+          updated_at = now()
+        where mqtt_hostname = $1
+        returning id
+      `,
+      [hostname, JSON.stringify(traceWithReceivedAt)],
+    );
+
+    if (!result.rowCount) {
+      await this.pool.query(
+        `
+          insert into discovered_devices (
+            mqtt_hostname, availability, first_seen_at, last_seen_at, last_payload
+          )
+          values ($1, 'online', now(), now(), $2::jsonb)
+          on conflict (mqtt_hostname)
+          do update set
+            availability = 'online',
+            last_seen_at = now(),
+            last_payload = excluded.last_payload
+        `,
+        [hostname, JSON.stringify({ topic, trace: traceWithReceivedAt })],
+      );
+      return;
+    }
+
+    await this.pool.query(
+      `
+        insert into device_events (id, device_id, output_id, event_type, payload)
+        select $1, d.id, null, 'mqtt.trace', $3::jsonb
+        from devices d
+        where d.mqtt_hostname = $2
+      `,
+      [createId(), hostname, JSON.stringify({ topic, trace: traceWithReceivedAt })],
     );
   }
 

@@ -407,6 +407,31 @@ function consoleHtml() {
       ].join("\\n");
     }
 
+    function buildDeviceTraceSummary(command) {
+      const output = state.outputs.find((item) => item.id === command.outputId);
+      if (!output) {
+        return "";
+      }
+
+      const device = state.devices.find((item) => item.id === output.deviceId);
+      if (!device || !device.lastTrace || device.lastTrace.relay !== output.channel) {
+        return "";
+      }
+
+      const receivedAt = parseIsoTime(device.lastTrace.receivedAt);
+      const createdAt = parseIsoTime(command.createdAt);
+      const backendToDeviceTrace = createdAt !== null && receivedAt !== null ? receivedAt - createdAt : null;
+
+      return [
+        "Latest device trace:",
+        "Device event: " + (device.lastTrace.eventType || "unknown"),
+        "Created -> device trace received: " + formatLatency(backendToDeviceTrace),
+        "Trace relay: " + (device.lastTrace.relay ?? "--"),
+        "Trace payload: " + (device.lastTrace.commandPayload || "--"),
+        "Trace state after: " + (device.lastTrace.stateAfter || "--")
+      ].join("\\n");
+    }
+
     async function fetchCommandTrace(commandId, attempts = 12) {
       if (!state.token) {
         return null;
@@ -930,7 +955,13 @@ function consoleHtml() {
       if (data.commands && data.commands.length === 1 && data.commands[0].id) {
         const tracedCommand = await fetchCommandTrace(data.commands[0].id);
         if (tracedCommand) {
-          statusMessage = buildLatencySummary(tracedCommand) + "\\n\\n" + JSON.stringify(tracedCommand, null, 2);
+          await loadDevices(true);
+          const deviceTraceSummary = buildDeviceTraceSummary(tracedCommand);
+          statusMessage =
+            buildLatencySummary(tracedCommand) +
+            (deviceTraceSummary ? "\\n\\n" + deviceTraceSummary : "") +
+            "\\n\\n" +
+            JSON.stringify(tracedCommand, null, 2);
         }
       }
 

@@ -69,6 +69,14 @@ When you trigger a relay from the console, the webhook status panel now shows a 
 
 That makes it easier to tell whether any remaining lag is coming from command pickup, broker publish, or the device-side completion path.
 
+The latest tracing update also adds a lightweight ESP-side trace:
+
+- the ESP publishes a tiny MQTT trace event when it receives a relay command
+- it publishes another when the relay state is applied
+- the middleware stores the latest device trace and includes it in the webhook status summary when available
+
+That lets you compare backend timing against the final device-side hop without adding heavy logging or polling.
+
 ## Current Branch Checkpoints
 
 Current recommended branch checkpoints before rollout:

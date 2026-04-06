@@ -1,4 +1,4 @@
-import type { CommandRecord, DeviceRecord, DeviceTelemetry, OutputRecord } from "../types/domain.js";
+import type { CommandRecord, DeviceRecord, DeviceTelemetry, DeviceTrace, OutputRecord } from "../types/domain.js";
 
 function parseJsonObject<T>(value: unknown, fallback: T): T {
   if (!value) {
@@ -45,6 +45,7 @@ export function mapOutputRow(row: Record<string, unknown>): OutputRecord {
 export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
   const metadata = parseJsonObject<Record<string, unknown>>(row.metadata, {});
   const telemetrySource = metadata.telemetry as Record<string, unknown> | undefined;
+  const traceSource = metadata.last_trace as Record<string, unknown> | undefined;
   const telemetry =
     telemetrySource && typeof telemetrySource === "object"
       ? ({
@@ -84,6 +85,24 @@ export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
               : Number(telemetrySource.last_mqtt_error),
         } satisfies DeviceTelemetry)
       : null;
+  const lastTrace =
+    traceSource && typeof traceSource === "object"
+      ? ({
+          eventType: traceSource.event_type ? String(traceSource.event_type) : null,
+          relay:
+            traceSource.relay === undefined || traceSource.relay === null
+              ? null
+              : Number(traceSource.relay),
+          commandTopic: traceSource.command_topic ? String(traceSource.command_topic) : null,
+          commandPayload: traceSource.command_payload ? String(traceSource.command_payload) : null,
+          stateAfter: traceSource.state_after ? String(traceSource.state_after) : null,
+          deviceUptimeMs:
+            traceSource.uptime_ms === undefined || traceSource.uptime_ms === null
+              ? null
+              : Number(traceSource.uptime_ms),
+          receivedAt: traceSource.received_at ? String(traceSource.received_at) : null,
+        } satisfies DeviceTrace)
+      : null;
 
   return {
     id: String(row.id),
@@ -99,6 +118,7 @@ export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
     availability: row.availability as DeviceRecord["availability"],
     lastSeenAt: row.last_seen_at ? String(row.last_seen_at) : null,
     telemetry,
+    lastTrace,
   };
 }
 

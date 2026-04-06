@@ -39,6 +39,16 @@ export interface DeviceTelemetry {
   lastMqttError: number | null;
 }
 
+export interface DeviceTrace {
+  eventType: string | null;
+  relay: number | null;
+  commandTopic: string | null;
+  commandPayload: string | null;
+  stateAfter: string | null;
+  deviceUptimeMs: number | null;
+  receivedAt: string | null;
+}
+
 export interface AuthPrincipal {
   kind: AuthPrincipalKind;
   subjectId: string;
@@ -70,6 +80,7 @@ export interface DeviceRecord {
   availability: DeviceAvailability;
   lastSeenAt: string | null;
   telemetry: DeviceTelemetry | null;
+  lastTrace: DeviceTrace | null;
 }
 
 export interface OutputRecord {
