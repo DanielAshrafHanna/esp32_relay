@@ -291,6 +291,35 @@ function consoleHtml() {
       <div id="webhook-status" class="status">Ready.</div>
     </section>
 
+    <section class="card" style="margin-bottom:20px;">
+      <div class="toolbar">
+        <h2>Board Onboarding</h2>
+        <div class="muted">Create a new relay board record, generate 8 relay outputs, and get the exact MQTT bootstrap line for Railway.</div>
+      </div>
+      <div class="grid-4">
+        <div>
+          <label for="new-board-title">Board Title</label>
+          <input id="new-board-title" placeholder="Dany Main Board">
+        </div>
+        <div>
+          <label for="new-board-hostname">MQTT Hostname</label>
+          <input id="new-board-hostname" placeholder="dany">
+        </div>
+        <div>
+          <label for="new-board-device-key">Device Key</label>
+          <input id="new-board-device-key" placeholder="Optional, defaults to MQTT hostname">
+        </div>
+        <div>
+          <label for="new-board-channels">Channel Count</label>
+          <input id="new-board-channels" type="number" min="1" max="8" value="8">
+        </div>
+      </div>
+      <div class="actions" style="margin-top:12px;">
+        <button id="create-board-btn">Create Board</button>
+      </div>
+      <div id="provisioning-status" class="status">Create a board here, then paste the returned bootstrap line into the secure Mosquitto service variable <span class="mono">MQTT_BOOTSTRAP_USERS</span>.</div>
+    </section>
+
     <section class="card">
       <div class="toolbar">
         <h2>Relay Boards</h2>
@@ -310,6 +339,7 @@ function consoleHtml() {
 
     const authStatus = document.getElementById("auth-status");
     const webhookStatus = document.getElementById("webhook-status");
+    const provisioningStatus = document.getElementById("provisioning-status");
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
 
@@ -583,6 +613,51 @@ function consoleHtml() {
       setTimeout(loadOutputs, 800);
     }
 
+    async function createBoard() {
+      const displayName = document.getElementById("new-board-title").value.trim();
+      const mqttHostname = document.getElementById("new-board-hostname").value.trim();
+      const deviceKey = document.getElementById("new-board-device-key").value.trim();
+      const channelCountRaw = document.getElementById("new-board-channels").value.trim();
+      const response = await fetch("/v1/provisioning/boards", {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({
+          display_name: displayName,
+          mqtt_hostname: mqttHostname,
+          device_key: deviceKey || undefined,
+          channel_count: channelCountRaw ? Number(channelCountRaw) : 8
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to create board");
+      }
+
+      state.devices.push(data.device);
+      state.outputs = state.outputs
+        .filter((output) => output.deviceId !== data.device.id)
+        .concat(data.outputs || []);
+      renderOutputs();
+
+      const bootstrapLine = data.mqttBootstrapEntry || "";
+      const credentials = data.credentials || {};
+      setStatus(
+        provisioningStatus,
+        [
+          "Board created: " + (data.device.displayName || data.device.deviceKey),
+          "Device ID: " + data.device.id,
+          "MQTT username: " + (credentials.username || ""),
+          "MQTT password: " + (credentials.password || ""),
+          "Add this line to secure broker MQTT_BOOTSTRAP_USERS:",
+          bootstrapLine
+        ].join("\\n"),
+        "ok"
+      );
+
+      document.getElementById("new-board-device-key").value = data.device.deviceKey || "";
+      document.getElementById("new-board-hostname").value = data.device.mqttHostname || "";
+    }
+
     document.getElementById("login-btn").addEventListener("click", async () => {
       try {
         await login();
@@ -615,6 +690,14 @@ function consoleHtml() {
         await triggerCompatibility(domain, service, entityId);
       } catch (error) {
         setStatus(webhookStatus, error.message, "error");
+      }
+    });
+
+    document.getElementById("create-board-btn").addEventListener("click", async () => {
+      try {
+        await createBoard();
+      } catch (error) {
+        setStatus(provisioningStatus, error.message, "error");
       }
     });
 

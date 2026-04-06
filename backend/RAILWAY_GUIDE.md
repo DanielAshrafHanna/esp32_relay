@@ -353,3 +353,32 @@ club-a-main:ClubAMqttPass456
 5. Make sure the device record in the middleware also uses `mqtt_hostname = club-a-main`.
 
 Because the ACL uses `%u`, that board will only be able to access `homeassistant/switch/club-a-main/#`.
+
+## Board Onboarding In The Middleware
+
+You no longer have to create new board rows manually in the database.
+
+Use the middleware console `Board Onboarding` section or call:
+
+- `POST /v1/provisioning/boards`
+
+Example:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/v1/provisioning/boards \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "Club A Main",
+    "mqtt_hostname": "club-a-main",
+    "channel_count": 8
+  }'
+```
+
+The response includes:
+
+- the created device record
+- the generated MQTT username/password
+- `mqttBootstrapEntry`
+
+Take that `mqttBootstrapEntry`, append it to `MQTT_BOOTSTRAP_USERS`, redeploy the secure broker, then enter the same username/password on the ESP.

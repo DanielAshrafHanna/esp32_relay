@@ -75,4 +75,76 @@ export class ProvisioningService {
       revokedAt: result.rows[0].revoked_at ? String(result.rows[0].revoked_at) : null,
     };
   }
+
+  async createBoard(
+    principal: AuthPrincipal,
+    input: {
+      customerId?: string;
+      siteId?: string | null;
+      deviceKey?: string;
+      mqttHostname: string;
+      displayName?: string;
+      transportVersion?: "legacy_ha" | "solace_v1";
+      channelCount?: number;
+    },
+  ) {
+    assertScope(principal, "provisioning:write");
+
+    const mqttHostname = normalizeIdentifier(input.mqttHostname);
+    if (!mqttHostname) {
+      throw new AppError("mqtt_hostname is required", 400, "missing_mqtt_hostname");
+    }
+
+    const deviceKey = normalizeIdentifier(input.deviceKey || mqttHostname);
+    if (!deviceKey) {
+      throw new AppError("device_key is required", 400, "missing_device_key");
+    }
+
+    const channelCount = input.channelCount ?? 8;
+    if (!Number.isInteger(channelCount) || channelCount < 1 || channelCount > 8) {
+      throw new AppError("channel_count must be between 1 and 8", 400, "invalid_channel_count");
+    }
+
+    const device = await this.outputService.createDevice(principal, {
+      customerId: input.customerId,
+      siteId: input.siteId,
+      deviceKey,
+      mqttHostname,
+      displayName: input.displayName,
+      transportVersion: input.transportVersion ?? "legacy_ha",
+    });
+
+    const outputs = await this.outputService.bulkConfigureDeviceOutputs(
+      principal,
+      device.id,
+      Array.from({ length: channelCount }, (_, index) => ({
+        channel: index + 1,
+        profileType: "generic_relay",
+      })),
+    );
+
+    const credentials = await this.issueDeviceCredentials(principal, device.id);
+
+    await this.auditService.log(principal, device.customerId, "device.created", "device", device.id, {
+      device_key: device.deviceKey,
+      mqtt_hostname: device.mqttHostname,
+      channel_count: channelCount,
+    });
+
+    return {
+      device,
+      outputs,
+      credentials,
+      mqttBootstrapEntry: `${credentials.username}:${credentials.password}`,
+    };
+  }
+}
+
+function normalizeIdentifier(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/--+/g, "-");
 }

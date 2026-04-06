@@ -212,6 +212,7 @@ Core native routes:
 - `PATCH /v1/outputs/:id/profile`
 - `PUT /v1/devices/:id/outputs/configuration`
 - `GET /v1/commands/:id`
+- `POST /v1/provisioning/boards`
 - `POST /v1/provisioning/device-credentials`
 
 Admin login:
@@ -334,6 +335,60 @@ For the easiest operator flow:
    - `Pulse` matters for gate or pulse-style behavior
 6. Click `Save` on that row
 7. Use the row action buttons or the `Webhook Tester` section to trigger it
+
+## Board Onboarding Flow
+
+The console now includes a `Board Onboarding` card for creating a new relay board without manually creating DB rows first.
+
+It will:
+
+- create the device record
+- create the default 8 outputs
+- issue MQTT credentials for that board
+- return the exact `username:password` line to append to `MQTT_BOOTSTRAP_USERS`
+
+Operator flow:
+
+1. Log in as admin
+2. In `Board Onboarding`, enter:
+   - board title
+   - MQTT hostname
+   - optional device key
+   - channel count, usually `8`
+3. Click `Create Board`
+4. Copy the returned `MQTT_BOOTSTRAP_USERS` line into the secure broker service
+5. Redeploy the secure broker
+6. Put the same MQTT username/password into the ESP `/solaceadmin`
+
+Native API example:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/v1/provisioning/boards \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "Dany Main Board",
+    "mqtt_hostname": "dany",
+    "channel_count": 8
+  }'
+```
+
+Typical response shape:
+
+```json
+{
+  "device": {
+    "id": "device-id",
+    "deviceKey": "dany",
+    "mqttHostname": "dany"
+  },
+  "credentials": {
+    "username": "dany",
+    "password": "generated-password"
+  },
+  "mqttBootstrapEntry": "dany:generated-password"
+}
+```
 
 ## Relay Board Sections
 

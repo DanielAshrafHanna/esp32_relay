@@ -38,6 +38,71 @@ const OUTPUT_SELECT = `
 export class OutputService {
   constructor(private readonly pool: Pool) {}
 
+  async createDevice(
+    principal: AuthPrincipal,
+    input: {
+      customerId?: string;
+      siteId?: string | null;
+      deviceKey: string;
+      mqttHostname: string;
+      displayName?: string;
+      transportVersion?: DeviceRecord["transportVersion"];
+    },
+  ): Promise<DeviceRecord> {
+    const customerId = this.resolveCustomerId(principal, input.customerId);
+
+    const customerResult = await this.pool.query("select status from customers where id = $1", [customerId]);
+    if (!customerResult.rowCount) {
+      throw new NotFoundError("Customer not found");
+    }
+    if (customerResult.rows[0].status !== "active") {
+      throw new AppError("Customer service is suspended", 403, "customer_suspended");
+    }
+
+    let siteId: string | null = input.siteId ?? null;
+    if (siteId) {
+      const siteResult = await this.pool.query("select id from sites where id = $1 and customer_id = $2", [siteId, customerId]);
+      if (!siteResult.rowCount) {
+        throw new AppError("Site not found for customer", 400, "invalid_site");
+      }
+    } else {
+      const siteResult = await this.pool.query(
+        "select id from sites where customer_id = $1 order by created_at asc limit 1",
+        [customerId],
+      );
+      siteId = siteResult.rowCount ? String(siteResult.rows[0].id) : null;
+    }
+
+    const deviceId = createId();
+
+    try {
+      await this.pool.query(
+        `
+          insert into devices (
+            id, customer_id, site_id, device_key, mqtt_hostname, transport_version, metadata
+          )
+          values ($1, $2, $3, $4, $5, $6, $7::jsonb)
+        `,
+        [
+          deviceId,
+          customerId,
+          siteId,
+          input.deviceKey,
+          input.mqttHostname,
+          input.transportVersion ?? "legacy_ha",
+          JSON.stringify(input.displayName ? { display_name: input.displayName.trim() } : {}),
+        ],
+      );
+    } catch (error) {
+      if (typeof error === "object" && error && "code" in error && error.code === "23505") {
+        throw new AppError("A device with this key or MQTT hostname already exists", 409, "device_conflict");
+      }
+      throw error;
+    }
+
+    return this.getDevice(principal, deviceId);
+  }
+
   async listDevices(principal: AuthPrincipal): Promise<DeviceRecord[]> {
     const result = await this.pool.query(
       `
@@ -309,5 +374,18 @@ export class OutputService {
     );
 
     return this.getDevice(principal, device.id);
+  }
+
+  private resolveCustomerId(principal: AuthPrincipal, customerId?: string): string {
+    if (customerId) {
+      assertCustomerAccess(principal, customerId);
+      return customerId;
+    }
+
+    if (principal.customerIds.length !== 1) {
+      throw new AppError("customer_id is required when you have access to multiple customers", 400, "missing_customer_id");
+    }
+
+    return principal.customerIds[0];
   }
 }

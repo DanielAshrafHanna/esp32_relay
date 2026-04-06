@@ -144,4 +144,34 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     reply.code(201);
     return credentials;
   });
+
+  app.post("/v1/provisioning/boards", async (request, reply) => {
+    const principal = await requirePrincipal(request, services);
+    const body = (request.body ?? {}) as {
+      customer_id?: string;
+      site_id?: string | null;
+      device_key?: string;
+      mqtt_hostname?: string;
+      display_name?: string;
+      transport_version?: "legacy_ha" | "solace_v1";
+      channel_count?: number;
+    };
+
+    if (!body.mqtt_hostname) {
+      throw new AppError("mqtt_hostname is required", 400, "missing_mqtt_hostname");
+    }
+
+    const board = await services.provisioningService.createBoard(principal, {
+      customerId: body.customer_id,
+      siteId: body.site_id,
+      deviceKey: body.device_key,
+      mqttHostname: body.mqtt_hostname,
+      displayName: body.display_name,
+      transportVersion: body.transport_version,
+      channelCount: body.channel_count,
+    });
+
+    reply.code(201);
+    return board;
+  });
 }
