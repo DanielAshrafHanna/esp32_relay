@@ -16,6 +16,24 @@ function parseJsonObject<T>(value: unknown, fallback: T): T {
   return value as T;
 }
 
+function formatTimestamp(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  const asString = String(value);
+  const parsed = Date.parse(asString);
+  if (!Number.isNaN(parsed)) {
+    return new Date(parsed).toISOString();
+  }
+
+  return asString;
+}
+
 export function mapOutputRow(row: Record<string, unknown>): OutputRecord {
   return {
     id: String(row.id),
@@ -38,7 +56,7 @@ export function mapOutputRow(row: Record<string, unknown>): OutputRecord {
     serviceMap: parseJsonObject<Record<string, string>>(row.service_map, {}),
     customerStatus: row.customer_status as OutputRecord["customerStatus"],
     lastKnownState: (row.last_known_state as OutputRecord["lastKnownState"]) ?? "UNKNOWN",
-    lastStateAt: row.last_state_at ? String(row.last_state_at) : null,
+    lastStateAt: formatTimestamp(row.last_state_at),
   };
 }
 
@@ -116,7 +134,7 @@ export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
     active: Boolean(row.active),
     desiredEnabled: Boolean(row.desired_enabled),
     availability: row.availability as DeviceRecord["availability"],
-    lastSeenAt: row.last_seen_at ? String(row.last_seen_at) : null,
+    lastSeenAt: formatTimestamp(row.last_seen_at),
     telemetry,
     lastTrace,
   };
@@ -137,14 +155,14 @@ export function mapCommandRow(row: Record<string, unknown>): CommandRecord {
     transportVersion: row.transport_version as CommandRecord["transportVersion"],
     steps: parseJsonObject(row.steps, []),
     currentStep: Number(row.current_step),
-    nextStepAt: String(row.next_step_at),
+    nextStepAt: formatTimestamp(row.next_step_at) ?? "",
     expectedStepState: row.expected_step_state ? String(row.expected_step_state) : null,
-    stepTimeoutAt: row.step_timeout_at ? String(row.step_timeout_at) : null,
-    deadlineAt: row.deadline_at ? String(row.deadline_at) : null,
+    stepTimeoutAt: formatTimestamp(row.step_timeout_at),
+    deadlineAt: formatTimestamp(row.deadline_at),
     lastError: row.last_error ? String(row.last_error) : null,
     resultPayload: parseJsonObject(row.result_payload, {}),
-    createdAt: String(row.created_at),
-    startedAt: row.started_at ? String(row.started_at) : null,
-    completedAt: row.completed_at ? String(row.completed_at) : null,
+    createdAt: formatTimestamp(row.created_at) ?? "",
+    startedAt: formatTimestamp(row.started_at),
+    completedAt: formatTimestamp(row.completed_at),
   };
 }
