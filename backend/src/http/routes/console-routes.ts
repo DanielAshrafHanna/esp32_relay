@@ -584,9 +584,8 @@ function consoleHtml() {
         throw new Error(data.message || "Failed to delete board");
       }
 
-      state.devices = state.devices.filter((device) => device.id !== id);
-      state.outputs = state.outputs.filter((output) => output.deviceId !== id);
-      renderOutputs();
+      await loadDevices(true);
+      await loadOutputs();
       setStatus(outputsStatus, "Deleted board " + (data.deleted?.displayName || name) + ".", "ok");
     }
 
@@ -736,8 +735,13 @@ function consoleHtml() {
     });
 
     deviceSections.addEventListener("click", async (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) {
+      const rawTarget = event.target;
+      if (!(rawTarget instanceof HTMLElement)) {
+        return;
+      }
+
+      const target = rawTarget.closest("button");
+      if (!(target instanceof HTMLButtonElement)) {
         return;
       }
 
@@ -788,10 +792,12 @@ function consoleHtml() {
 
 export async function registerConsoleRoutes(app: FastifyInstance) {
   app.get("/", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
     reply.type("text/html").send(consoleHtml());
   });
 
   app.get("/console", async (_request, reply) => {
+    reply.header("Cache-Control", "no-store");
     reply.type("text/html").send(consoleHtml());
   });
 }
