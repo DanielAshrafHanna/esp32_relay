@@ -195,6 +195,10 @@ function consoleHtml() {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
       font-size: 0.87rem;
     }
+    .mini-btn {
+      padding: 8px 10px;
+      font-size: 0.84rem;
+    }
     .muted { color: var(--muted); }
     @media (max-width: 980px) {
       .hero, .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
@@ -474,6 +478,93 @@ function consoleHtml() {
       ];
     }
 
+    function getCurrentProfileType(id) {
+      const select = document.querySelector('[data-field="profile_type"][data-id="' + id + '"]');
+      if (select instanceof HTMLSelectElement) {
+        return select.value;
+      }
+      const output = state.outputs.find((item) => item.id === id);
+      return output ? output.profileType : "generic_relay";
+    }
+
+    function getCurrentEntityId(id) {
+      const input = document.querySelector('[data-field="compat_entity_id"][data-id="' + id + '"]');
+      if (input instanceof HTMLInputElement && input.value.trim()) {
+        return input.value.trim();
+      }
+
+      const output = state.outputs.find((item) => item.id === id);
+      if (!output) {
+        return "";
+      }
+
+      return defaultCompatEntityId(output, getCurrentProfileType(id));
+    }
+
+    function applyWebhookPreview(spec) {
+      document.getElementById("webhook-domain").value = spec.domain;
+      document.getElementById("webhook-service").value = spec.service;
+      document.getElementById("webhook-entity").value = spec.entityId;
+      document.getElementById("webhook-body").value = JSON.stringify({ entity_id: spec.entityId });
+    }
+
+    function buildWebhookSpec(outputId, domain, service) {
+      const entityId = getCurrentEntityId(outputId);
+      const token = serviceTokenInput instanceof HTMLInputElement ? serviceTokenInput.value.trim() : "";
+      const authToken = token || "<SERVICE_TOKEN>";
+      const spec = {
+        domain,
+        service,
+        entityId,
+      };
+
+      return {
+        ...spec,
+        curl: 'curl -X POST ' +
+          window.location.origin +
+          '/api/services/' +
+          domain +
+          '/' +
+          service +
+          ' \\\\\n  -H "Authorization: Bearer ' +
+          authToken +
+          '" \\\\\n  -H "Content-Type: application/json" \\\\\n  -d ' +
+          "'" +
+          JSON.stringify({ entity_id: entityId }) +
+          "'"
+      };
+    }
+
+    function renderActionControls(outputId, profileType) {
+      const actions = profileActions(profileType);
+      const actionButtons = actions
+        .map((action) => '<button data-action="' + action.service + '" data-domain="' + action.domain + '" data-id="' + outputId + '" class="trigger-btn secondary mini-btn">' + action.label + '</button>')
+        .join("");
+      const copyButtons = actions
+        .map((action) => '<button data-action="' + action.service + '" data-domain="' + action.domain + '" data-id="' + outputId + '" class="copy-webhook-btn secondary mini-btn">Copy ' + action.label + ' cURL</button>')
+        .join("");
+
+      return '<div class="actions" style="margin-bottom:8px;">' + actionButtons + '</div>' +
+        '<div class="actions" style="margin-bottom:8px;">' + copyButtons + '</div>' +
+        '<div class="actions"><button class="save-btn" data-id="' + outputId + '">Save Relay</button></div>';
+    }
+
+    function updateActionControlsForOutput(id) {
+      const cell = document.querySelector('[data-actions-cell="' + id + '"]');
+      if (!(cell instanceof HTMLElement)) {
+        return;
+      }
+
+      cell.innerHTML = renderActionControls(id, getCurrentProfileType(id));
+    }
+
+    async function copyWebhookSpec(outputId, domain, service) {
+      const spec = buildWebhookSpec(outputId, domain, service);
+      applyWebhookPreview(spec);
+      await navigator.clipboard.writeText(spec.curl);
+      setStatus(webhookStatus, 'Copied ' + domain + '.' + service + ' webhook for ' + spec.entityId + '.', "ok");
+    }
+
     function renderOutputs() {
       deviceSections.innerHTML = "";
       if (!state.outputs.length && !state.devices.length) {
@@ -506,10 +597,6 @@ function consoleHtml() {
         section.className = "device-section";
 
         const rows = outputs.map((output) => {
-          const actionButtons = profileActions(output.profileType)
-            .map((action) => '<button data-action="' + action.service + '" data-domain="' + action.domain + '" data-id="' + output.id + '" class="trigger-btn secondary">' + action.label + '</button>')
-            .join("");
-
           return \`
             <tr>
               <td><strong>\${output.channel}</strong><div class="mono muted">\${output.id.slice(0, 8)}</div></td>
@@ -525,9 +612,8 @@ function consoleHtml() {
               </td>
               <td><input class="mono" data-field="compat_entity_id" data-id="\${output.id}" value="\${output.compatEntityId || ""}"></td>
               <td><input data-field="pulse_ms" data-id="\${output.id}" type="number" value="\${output.pulseMs || ""}" placeholder="2000"></td>
-              <td>
-                <div class="actions" style="margin-bottom:8px;">\${actionButtons}</div>
-                <div class="actions"><button class="save-btn" data-id="\${output.id}">Save Relay</button></div>
+              <td data-actions-cell="\${output.id}">
+                \${renderActionControls(output.id, output.profileType)}
               </td>
             </tr>
           \`;
@@ -971,6 +1057,7 @@ function consoleHtml() {
 
       if (rawTarget.matches('select[data-field="profile_type"]')) {
         maybeRotateEntityIdForProfileChange(rawTarget.dataset.id);
+        updateActionControlsForOutput(rawTarget.dataset.id);
       }
     });
 
@@ -1024,6 +1111,14 @@ function consoleHtml() {
             throw new Error("Output not found in current table");
           }
           await triggerCompatibility(target.dataset.domain, target.dataset.action, output.compatEntityId);
+        } catch (error) {
+          setStatus(webhookStatus, error.message, "error");
+        }
+      }
+
+      if (target.classList.contains("copy-webhook-btn")) {
+        try {
+          await copyWebhookSpec(target.dataset.id, target.dataset.domain, target.dataset.action);
         } catch (error) {
           setStatus(webhookStatus, error.message, "error");
         }
