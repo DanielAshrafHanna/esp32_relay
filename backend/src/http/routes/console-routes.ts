@@ -342,6 +342,7 @@ function consoleHtml() {
   <script>
     const state = {
       token: localStorage.getItem("solace_admin_token") || "",
+      serviceToken: localStorage.getItem("solace_service_token") || "",
       outputs: [],
       devices: [],
       discoveredBoards: []
@@ -354,6 +355,11 @@ function consoleHtml() {
     const discoveryList = document.getElementById("discovery-list");
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
+    const serviceTokenInput = document.getElementById("service-token");
+
+    if (serviceTokenInput instanceof HTMLInputElement) {
+      serviceTokenInput.value = state.serviceToken;
+    }
 
     function setStatus(node, message, kind) {
       node.textContent = message;
@@ -366,6 +372,12 @@ function consoleHtml() {
       } else {
         localStorage.removeItem("solace_admin_token");
       }
+
+      if (state.serviceToken) {
+        localStorage.setItem("solace_service_token", state.serviceToken);
+      } else {
+        localStorage.removeItem("solace_service_token");
+      }
     }
 
     function authHeaders(useAdmin = true, withJson = true) {
@@ -374,7 +386,7 @@ function consoleHtml() {
         if (withJson) {
           headers["Content-Type"] = "application/json";
         }
-        headers["Authorization"] = "Bearer " + document.getElementById("service-token").value.trim();
+        headers["Authorization"] = "Bearer " + (serviceTokenInput instanceof HTMLInputElement ? serviceTokenInput.value.trim() : "");
         return headers;
       }
       if (withJson) {
@@ -881,14 +893,32 @@ function consoleHtml() {
 
     document.getElementById("load-session").addEventListener("click", () => {
       state.token = localStorage.getItem("solace_admin_token") || "";
-      setStatus(authStatus, state.token ? "Loaded admin JWT from local storage." : "No saved admin session found.", state.token ? "ok" : "");
+      state.serviceToken = localStorage.getItem("solace_service_token") || "";
+      if (serviceTokenInput instanceof HTMLInputElement) {
+        serviceTokenInput.value = state.serviceToken;
+      }
+      setStatus(authStatus, state.token ? "Loaded admin JWT and saved service token from local storage." : "No saved admin session found.", state.token ? "ok" : "");
     });
 
     document.getElementById("clear-session").addEventListener("click", () => {
       state.token = "";
+      state.serviceToken = "";
+      if (serviceTokenInput instanceof HTMLInputElement) {
+        serviceTokenInput.value = "";
+      }
       saveSession();
-      setStatus(authStatus, "Cleared saved admin session.", "ok");
+      setStatus(authStatus, "Cleared saved admin session and saved service token.", "ok");
     });
+
+    if (serviceTokenInput instanceof HTMLInputElement) {
+      serviceTokenInput.addEventListener("change", () => {
+        state.serviceToken = serviceTokenInput.value.trim();
+        saveSession();
+      });
+      serviceTokenInput.addEventListener("input", () => {
+        state.serviceToken = serviceTokenInput.value.trim();
+      });
+    }
 
     deviceSections.addEventListener("change", (event) => {
       const rawTarget = event.target;

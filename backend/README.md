@@ -77,6 +77,12 @@ The current hosted test environment we created uses:
 
 These values are for the current test deployment only. Rotate them before any real customer rollout.
 
+Important Railway note:
+
+- on Railway, the seed script now defaults to **not** recreating the demo `esp32-relay` device on every restart
+- it still seeds the admin user and service account unless you remove `node dist/db/seed.js` from your start/init flow
+- if you explicitly want the demo board back, set `SEED_INCLUDE_DEMO_DEVICE=true`
+
 ## ESP Firmware Note For Railway MQTT
 
 Railway broker hostnames can be long. The firmware originally stored `mqtt_server` in a 40-character buffer, which truncates long broker hosts and causes MQTT connection failure.

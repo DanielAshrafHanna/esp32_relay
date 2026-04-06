@@ -226,6 +226,8 @@ That creates:
 - the service token
 - the 8 output mappings
 
+On Railway, the seed script now defaults to skipping the demo `esp32-relay` device so it does not keep reappearing on every restart. It will still seed the admin/service-account records unless you remove the seed step from your start/init flow.
+
 ## 10. First live test
 
 Open the API public URL in the browser.

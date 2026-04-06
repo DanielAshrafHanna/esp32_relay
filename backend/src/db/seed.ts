@@ -17,6 +17,8 @@ async function main() {
   const siteName = env("SEED_SITE_NAME", "Main Site");
   const deviceKey = env("SEED_DEVICE_KEY", "relay-demo-01");
   const deviceHostname = env("SEED_DEVICE_HOSTNAME", "esp32-relay");
+  const includeDemoDevice =
+    env("SEED_INCLUDE_DEMO_DEVICE", process.env.RAILWAY_ENVIRONMENT_ID ? "false" : "true").toLowerCase() === "true";
   const serviceAccountName = env("SEED_SERVICE_ACCOUNT_NAME", "mobile-app");
   const serviceAccountToken = env("SEED_SERVICE_ACCOUNT_TOKEN", "replace-with-long-random-token");
 
@@ -65,149 +67,154 @@ async function main() {
     );
     const siteId = siteResult.rows[0].id as string;
 
-    const deviceResult = await client.query(
-      `
-        insert into devices (
-          id, customer_id, site_id, device_key, mqtt_hostname, transport_version, active, desired_enabled, availability
-        )
-        values ($1, $2, $3, $4, $5, 'legacy_ha', true, true, 'unknown')
-        on conflict (device_key) do update set mqtt_hostname = excluded.mqtt_hostname, site_id = excluded.site_id
-        returning id
-      `,
-      [createId(), customerId, siteId, deviceKey, deviceHostname],
-    );
-    const deviceId = deviceResult.rows[0].id as string;
-
-    await client.query(
-      `
-        delete from output_aliases
-        where output_id in (
-          select id
-          from device_outputs
-          where device_id = $1 and channel > 8
-        )
-      `,
-      [deviceId],
-    );
-
-    await client.query(
-      `
-        delete from output_state_snapshots
-        where output_id in (
-          select id
-          from device_outputs
-          where device_id = $1 and channel > 8
-        )
-      `,
-      [deviceId],
-    );
-
-    await client.query(
-      `
-        delete from commands
-        where output_id in (
-          select id
-          from device_outputs
-          where device_id = $1 and channel > 8
-        )
-      `,
-      [deviceId],
-    );
-
-    await client.query(
-      `
-        delete from device_events
-        where output_id in (
-          select id
-          from device_outputs
-          where device_id = $1 and channel > 8
-        )
-      `,
-      [deviceId],
-    );
-
-    await client.query(`delete from device_outputs where device_id = $1 and channel > 8`, [deviceId]);
-
-    for (let channel = 1; channel <= 8; channel++) {
-      const profile =
-        channel === 1
-          ? resolveOutputProfileConfig({
-              deviceKey,
-              channel,
-              profileType: "light",
-              displayName: "Entry Light",
-              compatEntityId: "light.entry_light",
-            })
-          : channel === 2
-            ? resolveOutputProfileConfig({
-                deviceKey,
-                channel,
-                profileType: "gate",
-                displayName: "Aywana Locker Door",
-                compatEntityId: "lock.aywanalocker_door",
-              })
-            : resolveOutputProfileConfig({
-                deviceKey,
-                channel,
-                profileType: "generic_relay",
-                displayName: `Relay ${channel}`,
-              });
-
-      const outputResult = await client.query(
+    if (includeDemoDevice) {
+      const deviceResult = await client.query(
         `
-          insert into device_outputs (
-            id, device_id, channel, profile_type, display_name, pulse_ms, invert_relay, default_state,
-            allowed_actions, compat_domain, compat_entity_id, service_map
+          insert into devices (
+            id, customer_id, site_id, device_key, mqtt_hostname, transport_version, active, desired_enabled, availability
           )
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb)
-          on conflict (device_id, channel) do update set
-            profile_type = excluded.profile_type,
-            display_name = excluded.display_name,
-            pulse_ms = excluded.pulse_ms,
-            invert_relay = excluded.invert_relay,
-            default_state = excluded.default_state,
-            allowed_actions = excluded.allowed_actions,
-            compat_domain = excluded.compat_domain,
-            compat_entity_id = excluded.compat_entity_id,
-            service_map = excluded.service_map,
-            updated_at = now()
+          values ($1, $2, $3, $4, $5, 'legacy_ha', true, true, 'unknown')
+          on conflict (device_key) do update set mqtt_hostname = excluded.mqtt_hostname, site_id = excluded.site_id
           returning id
         `,
-        [
-          createId(),
-          deviceId,
-          channel,
-          profile.profileType,
-          profile.displayName,
-          profile.pulseMs,
-          profile.invertRelay,
-          profile.defaultState,
-          JSON.stringify(profile.allowedActions),
-          profile.compatDomain,
-          profile.compatEntityId,
-          JSON.stringify(profile.serviceMap),
-        ],
+        [createId(), customerId, siteId, deviceKey, deviceHostname],
       );
-
-      const outputId = outputResult.rows[0].id as string;
+      const deviceId = deviceResult.rows[0].id as string;
 
       await client.query(
         `
-          insert into output_aliases (id, output_id, alias_type, alias_value)
-          values ($1, $2, 'compat_entity', $3)
-          on conflict (alias_value) do update set output_id = excluded.output_id
+          delete from output_aliases
+          where output_id in (
+            select id
+            from device_outputs
+            where device_id = $1 and channel > 8
+          )
         `,
-        [createId(), outputId, profile.compatEntityId],
+        [deviceId],
       );
 
       await client.query(
         `
-          insert into output_state_snapshots (output_id, last_state, source, raw_payload)
-          values ($1, 'OFF', 'seed', '{}'::jsonb)
-          on conflict (output_id) do nothing
+          delete from output_state_snapshots
+          where output_id in (
+            select id
+            from device_outputs
+            where device_id = $1 and channel > 8
+          )
         `,
-        [outputId],
+        [deviceId],
       );
+
+      await client.query(
+        `
+          delete from commands
+          where output_id in (
+            select id
+            from device_outputs
+            where device_id = $1 and channel > 8
+          )
+        `,
+        [deviceId],
+      );
+
+      await client.query(
+        `
+          delete from device_events
+          where output_id in (
+            select id
+            from device_outputs
+            where device_id = $1 and channel > 8
+          )
+        `,
+        [deviceId],
+      );
+
+      await client.query(`delete from device_outputs where device_id = $1 and channel > 8`, [deviceId]);
+
+      for (let channel = 1; channel <= 8; channel++) {
+        const profile =
+          channel === 1
+            ? resolveOutputProfileConfig({
+                deviceKey,
+                entityNamespace: deviceHostname,
+                channel,
+                profileType: "light",
+                displayName: "Entry Light",
+                compatEntityId: "light.entry_light",
+              })
+            : channel === 2
+              ? resolveOutputProfileConfig({
+                  deviceKey,
+                  entityNamespace: deviceHostname,
+                  channel,
+                  profileType: "gate",
+                  displayName: "Aywana Locker Door",
+                  compatEntityId: "lock.aywanalocker_door",
+                })
+              : resolveOutputProfileConfig({
+                  deviceKey,
+                  entityNamespace: deviceHostname,
+                  channel,
+                  profileType: "generic_relay",
+                  displayName: `Relay ${channel}`,
+                });
+
+        const outputResult = await client.query(
+          `
+            insert into device_outputs (
+              id, device_id, channel, profile_type, display_name, pulse_ms, invert_relay, default_state,
+              allowed_actions, compat_domain, compat_entity_id, service_map
+            )
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb)
+            on conflict (device_id, channel) do update set
+              profile_type = excluded.profile_type,
+              display_name = excluded.display_name,
+              pulse_ms = excluded.pulse_ms,
+              invert_relay = excluded.invert_relay,
+              default_state = excluded.default_state,
+              allowed_actions = excluded.allowed_actions,
+              compat_domain = excluded.compat_domain,
+              compat_entity_id = excluded.compat_entity_id,
+              service_map = excluded.service_map,
+              updated_at = now()
+            returning id
+          `,
+          [
+            createId(),
+            deviceId,
+            channel,
+            profile.profileType,
+            profile.displayName,
+            profile.pulseMs,
+            profile.invertRelay,
+            profile.defaultState,
+            JSON.stringify(profile.allowedActions),
+            profile.compatDomain,
+            profile.compatEntityId,
+            JSON.stringify(profile.serviceMap),
+          ],
+        );
+
+        const outputId = outputResult.rows[0].id as string;
+
+        await client.query(
+          `
+            insert into output_aliases (id, output_id, alias_type, alias_value)
+            values ($1, $2, 'compat_entity', $3)
+            on conflict (alias_value) do update set output_id = excluded.output_id
+          `,
+          [createId(), outputId, profile.compatEntityId],
+        );
+
+        await client.query(
+          `
+            insert into output_state_snapshots (output_id, last_state, source, raw_payload)
+            values ($1, 'OFF', 'seed', '{}'::jsonb)
+            on conflict (output_id) do nothing
+          `,
+          [outputId],
+        );
+      }
     }
 
     await client.query(
@@ -225,10 +232,14 @@ async function main() {
     console.log(`Admin email: ${adminEmail}`);
     console.log(`Admin password: ${adminPassword}`);
     console.log(`Service account token: ${serviceAccountToken}`);
-    console.log("Default webhook entity IDs:");
-    console.log("- Channel 1: light.entry_light");
-    console.log("- Channel 2: lock.aywanalocker_door");
-    console.log("- Channels 3-8: switch.relay_demo_01_relay_<channel>");
+    if (includeDemoDevice) {
+      console.log("Default webhook entity IDs:");
+      console.log("- Channel 1: light.entry_light");
+      console.log("- Channel 2: lock.aywanalocker_door");
+      console.log("- Channels 3-8: switch.<mqtt_hostname>.relay<channel>");
+    } else {
+      console.log("Demo device seeding skipped");
+    }
   } catch (error) {
     await client.query("rollback");
     throw error;
