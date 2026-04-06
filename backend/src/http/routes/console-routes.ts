@@ -837,7 +837,7 @@ function consoleHtml() {
       setStatus(authStatus, "Cleared saved admin session.", "ok");
     });
 
-    deviceSections.addEventListener("click", async (event) => {
+    async function handleBoardActionClick(event) {
       const rawTarget = event.target;
       if (!(rawTarget instanceof HTMLElement)) {
         return;
@@ -891,7 +891,10 @@ function consoleHtml() {
           setStatus(webhookStatus, error.message, "error");
         }
       }
-    });
+    }
+
+    deviceSections.addEventListener("click", handleBoardActionClick);
+    discoveryList.addEventListener("click", handleBoardActionClick);
 
     if (state.token) {
       setStatus(authStatus, "Admin JWT restored from local storage. Click Load Outputs when ready.", "ok");
