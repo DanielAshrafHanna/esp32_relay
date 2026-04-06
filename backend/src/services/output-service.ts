@@ -378,8 +378,35 @@ export class OutputService {
 
   async deleteDevice(principal: AuthPrincipal, deviceId: string): Promise<DeviceRecord> {
     const device = await this.getDevice(principal, deviceId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
 
-    await this.pool.query("delete from devices where id = $1", [device.id]);
+      const outputsResult = await client.query(
+        "select id from device_outputs where device_id = $1",
+        [device.id],
+      );
+      const outputIds = outputsResult.rows.map((row) => String(row.id));
+
+      if (outputIds.length) {
+        await client.query("delete from commands where output_id = any($1::uuid[])", [outputIds]);
+        await client.query("delete from output_aliases where output_id = any($1::uuid[])", [outputIds]);
+        await client.query("delete from output_state_snapshots where output_id = any($1::uuid[])", [outputIds]);
+        await client.query("update device_events set output_id = null where output_id = any($1::uuid[])", [outputIds]);
+        await client.query("delete from device_outputs where id = any($1::uuid[])", [outputIds]);
+      }
+
+      await client.query("delete from device_events where device_id = $1", [device.id]);
+      await client.query("delete from device_credentials where device_id = $1", [device.id]);
+      await client.query("delete from devices where id = $1", [device.id]);
+
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return device;
   }
