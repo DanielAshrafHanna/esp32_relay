@@ -460,7 +460,19 @@ curl -X POST https://esp32relay-production.up.railway.app/v1/provisioning/device
 
 The returned username will be the board `mqtt_hostname`. The returned password is what you put into the ESP `/solaceadmin` page and also into the Mosquitto password file.
 
-Create or update the Mosquitto password file entry:
+On Railway, the easiest way to manage broker users is with the secure Mosquitto service variable `MQTT_BOOTSTRAP_USERS`. Put one `username:password` pair per line and redeploy the broker.
+
+Example:
+
+```text
+backend-gateway:STRONG_GATEWAY_PASSWORD
+esp32-relay:DEVICE_PASSWORD
+dany:ANOTHER_DEVICE_PASSWORD
+```
+
+The startup script will create or update `/mosquitto/config/passwd` automatically on every deploy.
+
+If you are running Mosquitto manually outside Railway, create or update the password file entry with:
 
 ```bash
 mosquitto_passwd -b backend/docker/mosquitto/passwd <mqtt_hostname> <generated-password>

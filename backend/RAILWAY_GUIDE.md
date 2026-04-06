@@ -293,28 +293,21 @@ Recommended production users:
   - username exactly matches `mqtt_hostname`
   - password unique per board
 
-After issuing a board credential from the middleware, add it to Mosquitto with:
+In Railway, set the secure Mosquitto service variable `MQTT_BOOTSTRAP_USERS` with one `username:password` pair per line.
 
-```bash
-mosquitto_passwd -b backend/docker/mosquitto/passwd <mqtt_hostname> <generated-password>
+Example:
+
+```text
+backend-gateway:STRONG_GATEWAY_PASSWORD
+esp32-relay:DEVICE_PASSWORD
+dany:ANOTHER_DEVICE_PASSWORD
 ```
 
-And add the backend user with:
-
-```bash
-mosquitto_passwd -b backend/docker/mosquitto/passwd backend-gateway <strong-random-password>
-```
+The broker startup script will create or update `/mosquitto/config/passwd` automatically on every deploy.
 
 Then set on the Railway `gateway` service:
 
 - `MQTT_USERNAME=backend-gateway`
-- `MQTT_PASSWORD=<strong-random-password>`
+- `MQTT_PASSWORD=<the same gateway password used in MQTT_BOOTSTRAP_USERS>`
 
-For Railway, the practical way to run those commands is to open a shell in the Mosquitto service and run them against the mounted config volume:
-
-```bash
-mosquitto_passwd -b /mosquitto/config/passwd backend-gateway <strong-random-password>
-mosquitto_passwd -b /mosquitto/config/passwd <mqtt_hostname> <generated-password>
-```
-
-Then restart the Mosquitto service so it reloads the password file.
+Then restart or redeploy the secure Mosquitto service after changing `MQTT_BOOTSTRAP_USERS`.
