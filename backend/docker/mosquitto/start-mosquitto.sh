@@ -22,7 +22,7 @@ fi
 chmod 600 "$CONFIG_DIR/passwd"
 
 if [ -n "${MQTT_BOOTSTRAP_USERS:-}" ]; then
-  printf '%s\n' "$MQTT_BOOTSTRAP_USERS" | while IFS= read -r entry; do
+  printf '%b\n' "$MQTT_BOOTSTRAP_USERS" | while IFS= read -r entry; do
     if [ -z "$entry" ]; then
       continue
     fi

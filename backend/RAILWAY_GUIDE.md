@@ -295,12 +295,20 @@ Recommended production users:
 
 In Railway, set the secure Mosquitto service variable `MQTT_BOOTSTRAP_USERS` with one `username:password` pair per line.
 
+You can enter this either as a real multiline value in the normal variable editor or as a single raw-editor line using `\n` between entries.
+
 Example:
 
 ```text
 backend-gateway:STRONG_GATEWAY_PASSWORD
 esp32-relay:DEVICE_PASSWORD
 dany:ANOTHER_DEVICE_PASSWORD
+```
+
+Raw editor example:
+
+```text
+MQTT_BOOTSTRAP_USERS=backend-gateway:STRONG_GATEWAY_PASSWORD\nesp32-relay:DEVICE_PASSWORD\ndany:ANOTHER_DEVICE_PASSWORD
 ```
 
 The broker startup script will create or update `/mosquitto/config/passwd` automatically on every deploy.

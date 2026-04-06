@@ -462,12 +462,20 @@ The returned username will be the board `mqtt_hostname`. The returned password i
 
 On Railway, the easiest way to manage broker users is with the secure Mosquitto service variable `MQTT_BOOTSTRAP_USERS`. Put one `username:password` pair per line and redeploy the broker.
 
+You can enter it either as real multiple lines in the value field or as a single raw-editor value using `\n` between entries.
+
 Example:
 
 ```text
 backend-gateway:STRONG_GATEWAY_PASSWORD
 esp32-relay:DEVICE_PASSWORD
 dany:ANOTHER_DEVICE_PASSWORD
+```
+
+Raw editor example:
+
+```text
+MQTT_BOOTSTRAP_USERS=backend-gateway:STRONG_GATEWAY_PASSWORD\nesp32-relay:DEVICE_PASSWORD\ndany:ANOTHER_DEVICE_PASSWORD
 ```
 
 The startup script will create or update `/mosquitto/config/passwd` automatically on every deploy.
