@@ -47,8 +47,8 @@ static constexpr const char* RELAY_NAMES[NUM_RELAYS] = {
 // Web Server
 #define WEB_SERVER_PORT 80
 
-// mDNS hostname (will be accessible at http://esp32-relay.local)
-#define MDNS_HOSTNAME "esp32-relay"
+// Default mDNS hostname fallback (actual runtime mDNS hostname follows MQTT hostname)
+#define MDNS_HOSTNAME_DEFAULT "esp32-relay"
 
 // WiFi Configuration Portal timeout (seconds)
 #define PORTAL_TIMEOUT 180

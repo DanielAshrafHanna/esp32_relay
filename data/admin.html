@@ -221,7 +221,11 @@
             <div class="form-group">
                 <label for="mqtt-hostname">MQTT Hostname</label>
                 <input type="text" id="mqtt-hostname" placeholder="esp32-relay" class="form-input">
-                <small style="color: #666;">Used for MQTT topics (e.g., homeassistant/switch/<strong>hostname</strong>/relay1)</small>
+                <small style="color: #666;">Used for MQTT topics and the local mDNS URL (e.g., <strong>hostname</strong>.local and homeassistant/switch/<strong>hostname</strong>/relay1)</small>
+            </div>
+
+            <div class="info-note" style="margin-top: 0; margin-bottom: 20px;">
+                <p><strong>mDNS note:</strong> The local web URL follows the MQTT hostname, so use a different MQTT hostname on each board at the same site to avoid `.local` conflicts.</p>
             </div>
 
             <button class="btn-save" onclick="saveMQTT()" style="margin-bottom: 30px;">💾 Save MQTT Settings</button>
@@ -258,7 +262,8 @@
                 const data = await response.json();
                 currentConfig = data.active_relays || 8;
                 
-                document.getElementById('current-relays').textContent = `${currentConfig} Channels`;
+                const mdnsHostname = data.mdns_hostname || data.mqtt_hostname || 'esp32-relay';
+                document.getElementById('current-relays').textContent = `${currentConfig} Channels • Local URL: http://${mdnsHostname}.local`;
                 
                 // Load MQTT settings
                 document.getElementById('mqtt-server').value = data.mqtt_server || '';
@@ -359,4 +364,3 @@
     </script>
 </body>
 </html>
-

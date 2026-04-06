@@ -135,7 +135,7 @@ Optional - RF Receiver:
   - Set `NUM_RELAYS` to match your relay count
   - Update `RELAY_PINS[]` array with your GPIO pins
   - Customize `RELAY_NAMES[]` for friendly names
-  - Change `MDNS_HOSTNAME` if desired (default: `esp32-relay`)
+  - `MQTT Hostname` is now the board identity used for both MQTT topics and the local `.local` URL
 3. **Upload Filesystem (Web Interface) - STEP 1** ⚠️
   ```bash
    pio run --target uploadfs
@@ -169,8 +169,13 @@ Optional - RF Receiver:
   - **MQTT Port**: Usually `1883`
   - **MQTT User**: MQTT username (if required)
   - **MQTT Password**: MQTT password (if required)
-  - **MQTT Hostname**: topic namespace used under `homeassistant/switch/<mqtt_hostname>/...`
+  - **MQTT Hostname**: topic namespace used under `homeassistant/switch/<mqtt_hostname>/...` and the source for the board's `.local` URL
 5. Click "Save" - the ESP32 will connect to your WiFi
+
+Use a unique `MQTT Hostname` for every board on the same local network. Example:
+
+- board 1: `dany` -> `http://dany.local`
+- board 2: `club-a-main` -> `http://club-a-main.local`
 
 For the current Railway secure broker, use:
 
@@ -201,7 +206,7 @@ This baseline adds:
 
 Once connected to WiFi, access the web interface at:
 
-- `http://esp32-relay.local` (recommended)
+- `http://<mqtt-hostname>.local` (recommended)
 - Or use the IP address shown in serial monitor
 
 ## Home Assistant Integration
@@ -314,11 +319,12 @@ const char* RELAY_NAMES[NUM_RELAYS] = {
 
 ### Change Hostname
 
-Edit `include/config.h`:
+Set the board's `MQTT Hostname` from `/solaceadmin`.
 
-```cpp
-#define MDNS_HOSTNAME "my-relay"  // Access at http://my-relay.local
-```
+The firmware now derives the local mDNS URL from that same value, so:
+
+- `mqtt_hostname = dany` -> `http://dany.local`
+- `mqtt_hostname = club-a-main` -> `http://club-a-main.local`
 
 ### Modify Web Interface
 
@@ -436,8 +442,8 @@ Get mDNS service status
 
 ```json
 {
-  "hostname": "esp32-relay",
-  "url": "http://esp32-relay.local",
+  "hostname": "dany",
+  "url": "http://dany.local",
   "ip": "192.168.1.100",
   "wifi_connected": true
 }
@@ -601,14 +607,14 @@ pio run --target upload
 ### Web Interface URLs
 
 ```
-Main Interface:     http://esp32-relay.local
+Main Interface:     http://<mqtt-hostname>.local
                     http://192.168.x.x
 
-Admin Panel:        http://esp32-relay.local/solaceadmin
+Admin Panel:        http://<mqtt-hostname>.local/solaceadmin
                     Username: admin
                     Password: Solacepass@123
 
-RF Learning:        http://esp32-relay.local/rf_learn.html
+RF Learning:        http://<mqtt-hostname>.local/rf_learn.html
 ```
 
 ### Default Credentials

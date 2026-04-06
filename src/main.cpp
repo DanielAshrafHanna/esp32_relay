@@ -9,6 +9,7 @@
 #include <Preferences.h>
 #include <RCSwitch.h>
 #include <esp_heap_caps.h>
+#include <ctype.h>
 #include "config.h"
 #include "relay_control.h"
 
@@ -26,6 +27,7 @@ char mqtt_port[6] = "1883";
 char mqtt_user[MQTT_USER_MAX_LEN] = "solacemqtt";
 char mqtt_password[MQTT_PASSWORD_MAX_LEN] = "solacepass";
 char mqtt_hostname[MQTT_HOSTNAME_MAX_LEN] = "esp32-relay";  // Configurable MQTT hostname for topics
+char mdns_hostname[MQTT_HOSTNAME_MAX_LEN] = MDNS_HOSTNAME_DEFAULT;
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
@@ -137,6 +139,54 @@ void processPendingRFStateOff();
 void clearRequestBodyBuffer(AsyncWebServerRequest* request);
 bool collectRequestBody(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total, size_t maxSize);
 bool parseJsonRequestBody(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total, JsonDocument& doc, size_t maxSize = MAX_JSON_BODY_SIZE);
+void updateMdnsHostname();
+const char* getMdnsHostname();
+
+void sanitizeHostname(const char* source, char* dest, size_t destSize) {
+    if (dest == nullptr || destSize == 0) {
+        return;
+    }
+
+    size_t writeIndex = 0;
+    bool lastWasHyphen = false;
+    for (size_t i = 0; source != nullptr && source[i] != '\0' && writeIndex < destSize - 1; i++) {
+        char c = static_cast<char>(tolower(static_cast<unsigned char>(source[i])));
+        bool valid = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9');
+
+        if (valid) {
+            dest[writeIndex++] = c;
+            lastWasHyphen = false;
+            continue;
+        }
+
+        if ((c == '-' || c == '_' || c == ' ' || c == '.') && writeIndex > 0 && !lastWasHyphen) {
+            dest[writeIndex++] = '-';
+            lastWasHyphen = true;
+        }
+    }
+
+    while (writeIndex > 0 && dest[writeIndex - 1] == '-') {
+        writeIndex--;
+    }
+
+    dest[writeIndex] = '\0';
+
+    if (writeIndex == 0) {
+        strncpy(dest, MDNS_HOSTNAME_DEFAULT, destSize - 1);
+        dest[destSize - 1] = '\0';
+    }
+}
+
+void updateMdnsHostname() {
+    sanitizeHostname(mqtt_hostname, mdns_hostname, sizeof(mdns_hostname));
+}
+
+const char* getMdnsHostname() {
+    if (mdns_hostname[0] == '\0') {
+        updateMdnsHostname();
+    }
+    return mdns_hostname;
+}
 
 void setup() {
     Serial.begin(115200);
@@ -159,6 +209,7 @@ void setup() {
     
     // Setup WiFi with captive portal
     setupWiFi();
+    updateMdnsHostname();
     
     // Setup mDNS
     setupMDNS();
@@ -176,8 +227,8 @@ void setup() {
     Serial.printf("Device Name: %s\n", DEVICE_NAME);
     Serial.printf("WiFi SSID: %s\n", WiFi.SSID().c_str());
     Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("mDNS URL: http://%s.local\n", MDNS_HOSTNAME);
-    Serial.printf("Admin Page: http://%s.local/solaceadmin\n", MDNS_HOSTNAME);
+    Serial.printf("mDNS URL: http://%s.local\n", getMdnsHostname());
+    Serial.printf("Admin Page: http://%s.local/solaceadmin\n", getMdnsHostname());
     Serial.printf("MQTT Server: %s:%s\n", mqtt_server, mqtt_port);
     Serial.printf("Active Relays: %d\n", activeRelayCount);
     Serial.println("======================\n");
@@ -369,8 +420,8 @@ void startAPMode() {
     
     // Restart mDNS to work with AP IP
     MDNS.end();
-    if (MDNS.begin(MDNS_HOSTNAME)) {
-        Serial.printf("[mDNS] Responder started in AP mode: http://%s.local\n", MDNS_HOSTNAME);
+    if (MDNS.begin(getMdnsHostname())) {
+        Serial.printf("[mDNS] Responder started in AP mode: http://%s.local\n", getMdnsHostname());
         MDNS.addService("http", "tcp", 80);
     }
 }
@@ -451,6 +502,7 @@ void setupWiFi() {
         new_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);
         new_password.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
         new_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
+        updateMdnsHostname();
         
         Serial.println("[WiFiManager] MQTT settings saved:");
         Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
@@ -473,15 +525,15 @@ void setupMDNS() {
     
     Serial.println("[mDNS] Starting mDNS responder...");
     
-    if (MDNS.begin(MDNS_HOSTNAME)) {
-        Serial.printf("[mDNS] Responder started: http://%s.local\n", MDNS_HOSTNAME);
+    if (MDNS.begin(getMdnsHostname())) {
+        Serial.printf("[mDNS] Responder started: http://%s.local\n", getMdnsHostname());
         Serial.printf("[mDNS] IP Address: %s\n", WiFi.localIP().toString().c_str());
         
         // Add HTTP service
         MDNS.addService("http", "tcp", 80);
         
         Serial.println("[mDNS] HTTP service registered");
-        Serial.println("[mDNS] Device should now be discoverable at esp32-relay.local");
+        Serial.printf("[mDNS] Device should now be discoverable at http://%s.local\n", getMdnsHostname());
         
         // Mark as initialized so event handler can restart it on reconnection
         mdnsInitialized = true;
@@ -591,9 +643,9 @@ void processDeferredMdnsRestart() {
     mdnsRestartRequested = false;
     Serial.println("[mDNS] Restarting after WiFi reconnection...");
     MDNS.end();
-    if (MDNS.begin(MDNS_HOSTNAME)) {
+    if (MDNS.begin(getMdnsHostname())) {
         MDNS.addService("http", "tcp", 80);
-        Serial.printf("[mDNS] Responder restarted: http://%s.local\n", MDNS_HOSTNAME);
+        Serial.printf("[mDNS] Responder restarted: http://%s.local\n", getMdnsHostname());
     } else {
         Serial.println("[mDNS] ERROR: Failed to restart mDNS responder!");
     }
@@ -994,7 +1046,7 @@ void setupWebServer() {
         doc["ssid"] = WiFi.SSID();
         doc["ip"] = WiFi.localIP().toString();
         doc["rssi"] = WiFi.RSSI();
-        doc["hostname"] = String(MDNS_HOSTNAME) + ".local";
+        doc["hostname"] = String(getMdnsHostname()) + ".local";
         doc["uptime"] = millis() / 1000;  // Uptime in seconds
         
         String output;
@@ -1103,6 +1155,7 @@ void setupWebServer() {
         doc["mqtt_port"] = atoi(mqtt_port);
         doc["mqtt_user"] = mqtt_user;
         doc["mqtt_hostname"] = mqtt_hostname;
+        doc["mdns_hostname"] = getMdnsHostname();
         // Don't send password for security
         doc["mqtt_password"] = "••••••••";
         
@@ -1195,6 +1248,7 @@ void setupWebServer() {
             String(new_port).toCharArray(mqtt_port, 6);
             new_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);
             new_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
+            updateMdnsHostname();
             if (new_password != "••••••••") {
                 new_password.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
             }
@@ -1344,11 +1398,11 @@ void setupWebServer() {
         MDNS.end();
         delay(100);
         
-        if (MDNS.begin(MDNS_HOSTNAME)) {
+        if (MDNS.begin(getMdnsHostname())) {
             MDNS.addService("http", "tcp", 80);
             delay(100);
             mdnsInitialized = true;  // Mark as initialized
-            Serial.printf("[mDNS] Service restarted: http://%s.local\n", MDNS_HOSTNAME);
+            Serial.printf("[mDNS] Service restarted: http://%s.local\n", getMdnsHostname());
             request->send(200, "application/json", "{\"success\":true,\"message\":\"mDNS restarted\"}");
         } else {
             mdnsInitialized = false;
@@ -1360,8 +1414,8 @@ void setupWebServer() {
     // API: Get mDNS status
     server.on("/api/mdns/status", HTTP_GET, [](AsyncWebServerRequest *request) {
         StaticJsonDocument<256> doc;
-        doc["hostname"] = MDNS_HOSTNAME;
-        doc["url"] = "http://" + String(MDNS_HOSTNAME) + ".local";
+        doc["hostname"] = getMdnsHostname();
+        doc["url"] = "http://" + String(getMdnsHostname()) + ".local";
         doc["ip"] = WiFi.localIP().toString();
         doc["wifi_connected"] = WiFi.status() == WL_CONNECTED;
         
@@ -1425,10 +1479,12 @@ void restoreRelayStates() {
         saved_pass.toCharArray(mqtt_password, MQTT_PASSWORD_MAX_LEN);
         String saved_hostname = preferences.getString("mqtt_hostname", "esp32-relay");
         saved_hostname.toCharArray(mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
+        updateMdnsHostname();
         Serial.println("[Storage] MQTT settings loaded from preferences");
         Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
     } else {
         Serial.println("[Storage] Using hardcoded MQTT settings");
+        updateMdnsHostname();
     }
     
     for (int i = 0; i < NUM_RELAYS; i++) {
