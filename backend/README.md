@@ -53,12 +53,21 @@ The console lets you:
 - trigger compatibility webhooks from the browser
 - copy ready-to-use compatibility webhook `curl` commands per relay row
 - view latest board telemetry such as uptime, RSSI, heap, and MQTT status
+- see command latency tracing in the webhook status panel after triggering a relay
 
 For responsive relay triggering, the recommended gateway setting is:
 
 - `COMMAND_POLL_INTERVAL_MS=150`
 
 The gateway now uses a push-based PostgreSQL wake-up path for new commands and keeps the poll interval as a fallback safety net plus timeout cadence. `150ms` is still a good default for your current scale without making the worker noisy.
+
+When you trigger a relay from the console, the webhook status panel now shows a simple timing breakdown:
+
+- `Created -> gateway start`
+- `Created -> MQTT publish ack`
+- `Created -> completed`
+
+That makes it easier to tell whether any remaining lag is coming from command pickup, broker publish, or the device-side completion path.
 
 ## Current Branch Checkpoints
 

@@ -311,7 +311,18 @@ export class DeviceGateway {
                 status = 'waiting_state',
                 expected_step_state = $2,
                 step_timeout_at = now() + ($3 || ' milliseconds')::interval,
-                started_at = coalesce(started_at, now())
+                started_at = coalesce(started_at, now()),
+                result_payload = jsonb_set(
+                  jsonb_set(
+                    coalesce(result_payload, '{}'::jsonb),
+                    '{trace,gateway_started_at}',
+                    to_jsonb(coalesce(started_at, now())::text),
+                    true
+                  ),
+                  '{trace,last_publish_ack_at}',
+                  to_jsonb(now()::text),
+                  true
+                )
               where id = $1
             `,
             [row.id, step.expectState, this.env.commandStepTimeoutMs],
@@ -587,7 +598,17 @@ export class DeviceGateway {
               expected_step_state = null,
               step_timeout_at = null,
               next_step_at = now() + ($3 || ' milliseconds')::interval,
-              result_payload = jsonb_set(coalesce(result_payload, '{}'::jsonb), '{last_confirmed_state}', to_jsonb($4::text), true)
+              result_payload = jsonb_set(
+                jsonb_set(
+                  coalesce(result_payload, '{}'::jsonb),
+                  '{last_confirmed_state}',
+                  to_jsonb($4::text),
+                  true
+                ),
+                '{trace,last_state_confirmed_at}',
+                to_jsonb(now()::text),
+                true
+              )
             where id = $1
           `,
           [row.id, nextStepIndex, executedStep.delayAfterMs ?? 0, state],
@@ -636,7 +657,22 @@ export class DeviceGateway {
             expected_step_state = null,
             step_timeout_at = null,
             started_at = coalesce(started_at, now()),
-            result_payload = jsonb_set(coalesce(result_payload, '{}'::jsonb), '{completed_state}', to_jsonb($3::text), true),
+            result_payload = jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  coalesce(result_payload, '{}'::jsonb),
+                  '{completed_state}',
+                  to_jsonb($3::text),
+                  true
+                ),
+                '{trace,gateway_started_at}',
+                to_jsonb(coalesce(started_at, now())::text),
+                true
+              ),
+              '{trace,last_publish_ack_at}',
+              to_jsonb(now()::text),
+              true
+            ),
             completed_at = now()
           where id = $1
         `,
@@ -646,7 +682,7 @@ export class DeviceGateway {
     }
 
     await client.query(
-      `
+        `
         update commands
         set
           status = 'queued',
@@ -655,7 +691,22 @@ export class DeviceGateway {
           step_timeout_at = null,
           started_at = coalesce(started_at, now()),
           next_step_at = now() + ($3 || ' milliseconds')::interval,
-          result_payload = jsonb_set(coalesce(result_payload, '{}'::jsonb), '{last_confirmed_state}', to_jsonb($4::text), true)
+          result_payload = jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                coalesce(result_payload, '{}'::jsonb),
+                '{last_confirmed_state}',
+                to_jsonb($4::text),
+                true
+              ),
+              '{trace,gateway_started_at}',
+              to_jsonb(coalesce(started_at, now())::text),
+              true
+            ),
+            '{trace,last_publish_ack_at}',
+            to_jsonb(now()::text),
+            true
+          )
         where id = $1
       `,
       [row.id, nextStepIndex, step.delayAfterMs ?? 0, step.expectState],

@@ -370,6 +370,71 @@ function consoleHtml() {
       node.className = "status" + (kind ? " " + kind : "");
     }
 
+    function parseIsoTime(value) {
+      if (!value) {
+        return null;
+      }
+      const ms = Date.parse(value);
+      return Number.isNaN(ms) ? null : ms;
+    }
+
+    function formatLatency(ms) {
+      if (ms === null || ms === undefined || Number.isNaN(ms)) {
+        return "n/a";
+      }
+      return ms + " ms";
+    }
+
+    function buildLatencySummary(command) {
+      const trace = command.resultPayload && typeof command.resultPayload === "object"
+        ? (command.resultPayload.trace || {})
+        : {};
+      const createdAt = parseIsoTime(command.createdAt);
+      const startedAt = parseIsoTime(command.startedAt);
+      const publishAckAt = parseIsoTime(trace.last_publish_ack_at);
+      const completedAt = parseIsoTime(command.completedAt);
+
+      const pickupLatency = createdAt !== null && startedAt !== null ? startedAt - createdAt : null;
+      const publishLatency = createdAt !== null && publishAckAt !== null ? publishAckAt - createdAt : null;
+      const completionLatency = createdAt !== null && completedAt !== null ? completedAt - createdAt : null;
+
+      return [
+        "Command " + command.id,
+        "Status: " + command.status,
+        "Created -> gateway start: " + formatLatency(pickupLatency),
+        "Created -> MQTT publish ack: " + formatLatency(publishLatency),
+        "Created -> completed: " + formatLatency(completionLatency)
+      ].join("\\n");
+    }
+
+    async function fetchCommandTrace(commandId, attempts = 12) {
+      if (!state.token) {
+        return null;
+      }
+
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const response = await fetch("/v1/commands/" + commandId, {
+          headers: authHeaders(true)
+        });
+        if (!response.ok) {
+          return null;
+        }
+
+        const command = await response.json();
+        const trace = command.resultPayload && typeof command.resultPayload === "object"
+          ? (command.resultPayload.trace || {})
+          : {};
+
+        if (command.startedAt || trace.last_publish_ack_at || command.completedAt) {
+          return command;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+
+      return null;
+    }
+
     function saveSession() {
       if (state.token) {
         localStorage.setItem("solace_admin_token", state.token);
@@ -860,7 +925,16 @@ function consoleHtml() {
       if (!response.ok) {
         throw new Error(data.message || "Webhook call failed");
       }
-      setStatus(webhookStatus, JSON.stringify(data, null, 2), "ok");
+
+      let statusMessage = JSON.stringify(data, null, 2);
+      if (data.commands && data.commands.length === 1 && data.commands[0].id) {
+        const tracedCommand = await fetchCommandTrace(data.commands[0].id);
+        if (tracedCommand) {
+          statusMessage = buildLatencySummary(tracedCommand) + "\\n\\n" + JSON.stringify(tracedCommand, null, 2);
+        }
+      }
+
+      setStatus(webhookStatus, statusMessage, "ok");
       setTimeout(loadOutputs, 800);
     }
 
