@@ -96,6 +96,7 @@ void reconnectMQTT();
 void publishDiscovery();
 void publishState(int relayIndex);
 void publishTelemetry(bool force = false);
+void processMqttRecovery();
 void saveConfigCallback();
 void saveRelayStates();
 void restoreRelayStates();
@@ -115,6 +116,11 @@ unsigned long lastTelemetryPublishAt = 0;
 unsigned long totalWifiReconnectAttempts = 0;
 unsigned long totalMqttReconnectAttempts = 0;
 int lastMqttErrorCode = 0;
+unsigned long lastWifiConnectedAt = 0;
+unsigned long lastMqttHealthyAt = 0;
+const unsigned long MQTT_STUCK_REBOOT_MS = 1800000;  // 30 minutes
+const unsigned long WIFI_STABLE_BEFORE_MQTT_REBOOT_MS = 180000;  // 3 minutes
+const int MQTT_REBOOT_MIN_ATTEMPTS = 8;
 
 struct RequestBodyBuffer {
     char* data = nullptr;
@@ -186,9 +192,14 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) {
         if (!mqttClient.connected()) {
             reconnectMQTT();
+            processMqttRecovery();
         }
-        mqttClient.loop();
-        publishTelemetry();
+        if (mqttClient.connected()) {
+            if (mqttClient.loop()) {
+                lastMqttHealthyAt = millis();
+            }
+            publishTelemetry();
+        }
     }
     
     // Check RF signals
@@ -207,6 +218,8 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     wifiConnected = true;
     wifiReconnecting = false;
     wifiReconnectAttempts = 0;  // Reset attempt counter on success
+    lastWifiConnectedAt = millis();
+    lastMQTTAttempt = 0;  // Allow immediate MQTT reconnect on fresh WiFi
     
     // If we were in AP mode, we can disable it now
     if (apModeActive) {
@@ -228,6 +241,10 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
 void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.println("[WiFi] Event: Disconnected!");
     wifiConnected = false;
+    lastWifiConnectedAt = 0;
+    lastMqttHealthyAt = 0;
+    mqttClient.disconnect();
+    espClient.stop();
     // Don't take action here - let checkWiFiConnection() handle it
 }
 
@@ -582,6 +599,35 @@ void processDeferredMdnsRestart() {
     }
 }
 
+void processMqttRecovery() {
+    if (WiFi.status() != WL_CONNECTED || apModeActive || mqttClient.connected()) {
+        return;
+    }
+
+    unsigned long now = millis();
+    if (lastWifiConnectedAt == 0 || now - lastWifiConnectedAt < WIFI_STABLE_BEFORE_MQTT_REBOOT_MS) {
+        return;
+    }
+
+    if (mqttCredentialRetryAt != 0 && now < mqttCredentialRetryAt) {
+        return;
+    }
+
+    if (mqttReconnectAttempts < MQTT_REBOOT_MIN_ATTEMPTS) {
+        return;
+    }
+
+    unsigned long mqttUnhealthyDuration = lastMqttHealthyAt == 0 ? now - lastWifiConnectedAt : now - lastMqttHealthyAt;
+    if (mqttUnhealthyDuration < MQTT_STUCK_REBOOT_MS) {
+        return;
+    }
+
+    Serial.println("[MQTT] Stuck disconnected for too long while WiFi is healthy - rebooting ESP32");
+    Serial.printf("[MQTT] Last error: %d, reconnect attempts: %d\n", lastMqttErrorCode, mqttReconnectAttempts);
+    delay(100);
+    ESP.restart();
+}
+
 /*
  * MQTT Retry Interval with Progressive Backoff (v1.3.0)
  * 
@@ -634,6 +680,11 @@ void reconnectMQTT() {
     totalMqttReconnectAttempts++;
     Serial.printf("[MQTT] Connection attempt %d (next retry in %lus if fails)...\n", 
                  mqttReconnectAttempts, getMqttRetryInterval() / 1000);
+
+    // Force a clean socket state before each reconnect attempt.
+    mqttClient.disconnect();
+    espClient.stop();
+    delay(20);
     
     char clientId[64];
     snprintf(clientId, sizeof(clientId), "%s-%llx", DEVICE_NAME, static_cast<unsigned long long>(ESP.getEfuseMac()));
@@ -650,6 +701,7 @@ void reconnectMQTT() {
     if (connected) {
         Serial.println("[MQTT] Connected!");
         lastMqttErrorCode = 0;
+        lastMqttHealthyAt = millis();
         
         // Reset counters on success
         mqttReconnectAttempts = 0;
