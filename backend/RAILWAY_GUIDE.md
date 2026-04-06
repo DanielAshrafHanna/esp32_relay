@@ -2,6 +2,13 @@
 
 This guide gets the middleware online on Railway without requiring your own VPS first.
 
+Current branch checkpoints:
+
+- ESP runtime stability: `c4bbaea`
+- ESP telemetry export: `e5ccd2c`
+- ESP MQTT recovery hardening: `ac02b87`
+- Middleware webhook helper repair: `dfcf339`
+
 ## What we will deploy
 
 You need four Railway services in one project:
@@ -254,6 +261,11 @@ Then:
 1. click `Load Devices`
 2. click `Load Outputs`
 3. trigger a row action
+
+The current console also shows:
+
+- board telemetry badges for uptime, RSSI, heap, and MQTT status
+- copyable per-relay webhook `curl` commands that track the current entity and profile
 
 Or use a webhook:
 

@@ -257,7 +257,7 @@ void setupWiFiEvents() {
 }
 
 /*
- * Smart WiFi Reconnection System (v1.3.0)
+ * Smart WiFi Reconnection System
  * 
  * Fast Phase (before AP mode):
  *   - 6 attempts, 10 seconds apart
@@ -629,7 +629,7 @@ void processMqttRecovery() {
 }
 
 /*
- * MQTT Retry Interval with Progressive Backoff (v1.3.0)
+ * MQTT Retry Interval with Progressive Backoff
  * 
  * Strategy:
  *   - Attempts 1-3:  Every 10 seconds (fast recovery for temporary issues)
@@ -650,7 +650,7 @@ unsigned long getMqttRetryInterval() {
 }
 
 /*
- * Smart MQTT Reconnection with Exponential Backoff (v1.3.0)
+ * Smart MQTT Reconnection with Exponential Backoff
  * 
  * Features:
  * - Progressive backoff to reduce broker load during outages
@@ -870,8 +870,8 @@ void publishDiscovery() {
         device["identifiers"][0] = mqtt_hostname;
         device["name"] = DEVICE_NAME;
         device["manufacturer"] = "ESP32";
-        device["model"] = "16-Channel Relay Controller";
-        device["sw_version"] = "1.4.0";
+        device["model"] = "8-Channel Relay Controller";
+        device["sw_version"] = "1.5.0";
         
         String output;
         serializeJson(doc, output);
@@ -913,8 +913,8 @@ void publishDiscovery() {
             device["identifiers"][0] = mqtt_hostname;
             device["name"] = DEVICE_NAME;
             device["manufacturer"] = "ESP32";
-            device["model"] = "16-Channel Relay Controller";
-            device["sw_version"] = "1.4.0";
+            device["model"] = "8-Channel Relay Controller";
+            device["sw_version"] = "1.5.0";
             
             String output;
             serializeJson(doc, output);

@@ -4,6 +4,62 @@ This document tracks all issues encountered during development and their solutio
 
 ---
 
+## Version 1.5.0 - Telemetry & MQTT Recovery Hardening (April 2026)
+
+### Improvements
+
+#### 1. ✅ Safer Web Request Handling
+**Problem**: Async POST handlers were parsing raw request buffers without respecting body length, which could corrupt memory and contribute to lockups.
+
+**Solution**:
+- Added safe request-body buffering for async handlers
+- Parse JSON using the real collected body length
+- Reject empty or oversized request bodies cleanly
+
+**Files Modified**: `src/main.cpp`
+
+---
+
+#### 2. ✅ Lower Runtime Blocking
+**Problem**: mDNS restart work and RF auto-off handling could block runtime paths and hurt responsiveness.
+
+**Solution**:
+- Deferred mDNS restart out of WiFi event callbacks
+- Replaced blocking RF auto-off wait with a non-blocking scheduled OFF publish
+- Debounced relay-state persistence to reduce hot-path storage writes
+
+**Files Modified**: `src/main.cpp`
+
+---
+
+#### 3. ✅ Lightweight Device Telemetry
+**Problem**: The middleware had little visibility into board uptime, RSSI, heap health, and MQTT state.
+
+**Solution**:
+- Added retained MQTT telemetry publishing from the ESP
+- Exported uptime, RSSI, heap, MQTT status, reconnect counts, and last MQTT error
+- Middleware now shows latest telemetry per board
+
+**Files Modified**:
+- `src/main.cpp`
+- `backend/src/gateway/device-gateway.ts`
+- `backend/src/http/routes/console-routes.ts`
+
+---
+
+#### 4. ✅ MQTT Recovery Hardening
+**Problem**: In some cases the board could remain stuck trying to reconnect to MQTT until manually power-cycled.
+
+**Solution**:
+- Force a clean TCP/MQTT socket reset before reconnect attempts
+- Tear down MQTT state immediately on WiFi disconnect
+- Allow immediate retry after fresh WiFi reconnection
+- Add a conservative stuck-MQTT reboot fallback when WiFi is healthy but MQTT remains dead for too long
+
+**Files Modified**: `src/main.cpp`
+
+---
+
 ## Version 1.4.1 - WiFi Reconnection Speed Improvement (October 2025)
 
 ### Improvements
@@ -552,4 +608,3 @@ Use this checklist when deploying updates:
 *For current documentation, see README.md*  
 *For troubleshooting, see TROUBLESHOOTING.md*  
 *For quick commands, see QUICK_REFERENCE.md*
-

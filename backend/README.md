@@ -51,6 +51,17 @@ The console lets you:
 - change a relay between `gate`, `light`, `cover`, and `generic relay`
 - edit webhook entity IDs
 - trigger compatibility webhooks from the browser
+- copy ready-to-use compatibility webhook `curl` commands per relay row
+- view latest board telemetry such as uptime, RSSI, heap, and MQTT status
+
+## Current Branch Checkpoints
+
+Current recommended branch checkpoints before rollout:
+
+- ESP firmware stability: `c4bbaea` `Harden ESP runtime stability`
+- ESP telemetry export: `e5ccd2c` `Add lightweight device telemetry`
+- ESP MQTT recovery hardening: `ac02b87` `Harden MQTT recovery behavior`
+- Middleware webhook helper fix: `dfcf339` `Fix console webhook helper script`
 
 ## Default Local Credentials
 
@@ -91,8 +102,8 @@ This branch includes a firmware fix that increases the MQTT server, username, pa
 
 - re-enter the full MQTT server hostname
 - use the Railway-generated TCP proxy port, not the internal broker port unless the proxy explicitly shows `1883`
-- leave username blank for the current test broker
-- clear the password field if you want it blank
+- use the per-board MQTT username and password shown below for the secure broker
+- clear the password field only if you intentionally want it blank on a local anonymous broker
 - keep MQTT hostname as `esp32-relay`
 
 If the password field in `/solaceadmin` shows dots, that is a masked placeholder, not proof that a real password is still required.

@@ -2,7 +2,7 @@
 
 **WIFI Signal should be <-60 dBm for stable results**
 
-**Version 1.4** - Professional 8-channel relay controller with WiFi, MQTT, and RF receiver support.
+**Version 1.5.0** - Professional 8-channel relay controller with WiFi, MQTT, RF receiver support, telemetry, and hardened MQTT recovery.
 
 > **📚 New to this project? See [DOCUMENTATION_INDEX.md](DOCUMENTATION_INDEX.md) for a complete guide to all documentation.**
 >
@@ -57,7 +57,7 @@ If the MQTT password field shows dots, that is a masked placeholder returned by 
 ## Hardware Requirements
 
 - ESP32 Development Board (ESP32-D0WD-V3 or similar)
-- 16-Channel Relay Module (or 8/12-channel)
+- 8-Channel Relay Module
 - SYN480R 433MHz RF Receiver (optional)
 - Power Supply (5V for ESP32, appropriate voltage for relay coils)
 - Jumper wires
@@ -179,6 +179,23 @@ For the current Railway secure broker, use:
 - MQTT User: `esp32-relay`
 - MQTT Password: `BoardPass123`
 - MQTT Hostname: `esp32-relay`
+
+## Current Firmware Baseline
+
+Current recommended firmware baseline for this branch:
+
+- **Firmware version:** `v1.5.0`
+- **ESP runtime stability checkpoint:** `c4bbaea` `Harden ESP runtime stability`
+- **Telemetry checkpoint:** `e5ccd2c` `Add lightweight device telemetry`
+- **MQTT recovery checkpoint:** `ac02b87` `Harden MQTT recovery behavior`
+
+This baseline adds:
+
+- safer async web request parsing
+- reduced blocking in WiFi/mDNS and RF paths
+- debounced relay state persistence
+- lightweight telemetry published to MQTT
+- stronger MQTT self-recovery when WiFi is healthy but MQTT gets stuck
 
 ### 2. Access Web Interface
 
@@ -598,10 +615,10 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 
 **WiFi AP Mode** (if not configured):
 
-- SSID: `ESP32-Relay-Config`
+- SSID: `ESP32-Relay-Setup`
 - Password: `12345678`
 
-**MQTT** (hardcoded, changeable via web):
+**MQTT** (firmware defaults before reconfiguration, changeable via web):
 
 - Broker: `192.168.68.100:1883`
 - User: `solacemqtt`
@@ -614,12 +631,21 @@ RF Learning:        http://esp32-relay.local/rf_learn.html
 
 ## Version History
 
-- **v1.4.0** - Safety & Uptime 
+- **v1.5.0** - Middleware Telemetry & MQTT Self-Recovery
+  - Added lightweight MQTT telemetry publish for uptime, RSSI, heap, MQTT status, reconnect counts, and last MQTT error
+  - Hardened async web request parsing to avoid malformed/chunked JSON crashes
+  - Deferred mDNS restart work out of WiFi event callbacks
+  - Debounced relay-state persistence to reduce hot-path NVS writes
+  - Removed blocking RF auto-off wait from the main runtime path
+  - Added cleaner MQTT reconnect attempts with forced socket reset before reconnect
+  - Added long-duration MQTT stuck detection with automatic reboot fallback when WiFi is healthy but MQTT remains dead
+
+- **v1.4.0** - Safety & Uptime
   - Removed ESP.restart() on WiFi failure - enters AP mode instead (prevents relay clicks)
   - Added uptime display on webpage (shows time since last reboot)
   - Background WiFi reconnection continues every 60 seconds in AP mode
   - Critical fix for safety-sensitive applications (lights, gates)
-- **v1.3.0** - Smart Reconnection System 
+- **v1.3.0** - Smart Reconnection System
   - **Smart WiFi Reconnection:**
     - Fast phase: 6 attempts every 10 seconds (~1 minute) before AP mode
     - Slow phase: Attempts every 60 seconds while in AP mode

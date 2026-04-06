@@ -24,6 +24,7 @@ This index helps you quickly find the documentation you need.
 | Document | Description | When to Read |
 |----------|-------------|--------------|
 | **README.md** | Main project documentation | First time, overview |
+| **backend/README.md** | Middleware, Railway, API, and webhook docs | Cloud backend setup |
 | **GET_STARTED.md** | Beginner-friendly setup guide | New users |
 | **SETUP_GUIDE.md** | Detailed installation steps | Complete setup |
 | **QUICK_REFERENCE.md** | Command cheat sheet | Quick lookups |
@@ -96,7 +97,9 @@ pio run --target uploadfs
 
 ➡️ Read: **PERFORMANCE_FIX_SUMMARY.md**
 
-**Fixed In**: Version 1.4 (current version)
+**Fixed In**: Version 1.4
+
+Current recommended firmware baseline: **Version 1.5.0**
 
 ---
 
@@ -218,6 +221,7 @@ pio run --target clean
 2. PERFORMANCE_FIX_SUMMARY.md (why it's fast)
 3. EVENT_DRIVEN_WIFI.md (WiFi implementation)
 4. MQTT_OPTIMIZATION.md (MQTT strategy)
+5. backend/README.md (middleware, MQTT auth, discovery, and Railway flow)
 
 ### For RF Feature
 1. RF_RECEIVER_GUIDE.md (complete guide)
@@ -296,4 +300,3 @@ If you could only read 5 documents, read these:
 ---
 
 **Happy Building! 🚀**
-
