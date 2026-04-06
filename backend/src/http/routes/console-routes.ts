@@ -409,6 +409,17 @@ function consoleHtml() {
       ];
     }
 
+    function defaultCompatDomain(profileType) {
+      if (profileType === "light") return "light";
+      if (profileType === "gate") return "lock";
+      if (profileType === "cover") return "cover";
+      return "switch";
+    }
+
+    function defaultCompatEntityId(output, profileType) {
+      return defaultCompatDomain(profileType) + "." + output.mqttHostname + ".relay" + output.channel;
+    }
+
     function renderOutputs() {
       deviceSections.innerHTML = "";
       if (!state.outputs.length && !state.devices.length) {
@@ -650,16 +661,32 @@ function consoleHtml() {
     }
 
     function collectRowValues(id) {
+      const output = state.outputs.find((item) => item.id === id);
       const displayName = document.querySelector('[data-field="display_name"][data-id="' + id + '"]').value.trim();
       const profileType = document.querySelector('[data-field="profile_type"][data-id="' + id + '"]').value;
       const compatEntityId = document.querySelector('[data-field="compat_entity_id"][data-id="' + id + '"]').value.trim();
       const pulseRaw = document.querySelector('[data-field="pulse_ms"][data-id="' + id + '"]').value.trim();
-      return {
+      const payload = {
         display_name: displayName,
         profile_type: profileType,
-        compat_entity_id: compatEntityId,
         pulse_ms: pulseRaw ? Number(pulseRaw) : null
       };
+
+      if (!output) {
+        payload.compat_entity_id = compatEntityId;
+        return payload;
+      }
+
+      const oldDefaultEntityId = defaultCompatEntityId(output, output.profileType);
+      const shouldAutoRotateEntity =
+        profileType !== output.profileType &&
+        (compatEntityId === output.compatEntityId || compatEntityId === oldDefaultEntityId || compatEntityId === "");
+
+      if (!shouldAutoRotateEntity) {
+        payload.compat_entity_id = compatEntityId;
+      }
+
+      return payload;
     }
 
     async function saveOutput(id) {
@@ -783,6 +810,32 @@ function consoleHtml() {
       setStatus(discoveryStatus, "Claimed discovered board " + mqttHostname + ".", "ok");
     }
 
+    function maybeRotateEntityIdForProfileChange(id) {
+      const output = state.outputs.find((item) => item.id === id);
+      if (!output) {
+        return;
+      }
+
+      const profileSelect = document.querySelector('[data-field="profile_type"][data-id="' + id + '"]');
+      const entityInput = document.querySelector('[data-field="compat_entity_id"][data-id="' + id + '"]');
+      if (!(profileSelect instanceof HTMLSelectElement) || !(entityInput instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const currentValue = entityInput.value.trim();
+      const oldDefaultEntityId = defaultCompatEntityId(output, output.profileType);
+      const shouldRotate =
+        currentValue === "" ||
+        currentValue === output.compatEntityId ||
+        currentValue === oldDefaultEntityId;
+
+      if (!shouldRotate) {
+        return;
+      }
+
+      entityInput.value = defaultCompatEntityId(output, profileSelect.value);
+    }
+
     document.getElementById("login-btn").addEventListener("click", async () => {
       try {
         await login();
@@ -835,6 +888,17 @@ function consoleHtml() {
       state.token = "";
       saveSession();
       setStatus(authStatus, "Cleared saved admin session.", "ok");
+    });
+
+    deviceSections.addEventListener("change", (event) => {
+      const rawTarget = event.target;
+      if (!(rawTarget instanceof HTMLElement)) {
+        return;
+      }
+
+      if (rawTarget.matches('select[data-field="profile_type"]')) {
+        maybeRotateEntityIdForProfileChange(rawTarget.dataset.id);
+      }
     });
 
     async function handleBoardActionClick(event) {
