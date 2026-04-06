@@ -41,6 +41,7 @@ export class DeviceGateway {
     this.mqttClient = await this.connectMqtt();
     await this.startCommandListener();
     await this.refreshDeviceTopics();
+    await this.expireStaleStartupCommands();
     this.requestCommandProcessing();
     void this.subscriptionRefreshLoop();
     void this.commandLoop();
@@ -208,6 +209,31 @@ export class DeviceGateway {
       }
 
       await delay(this.env.commandPollIntervalMs);
+    }
+  }
+
+  private async expireStaleStartupCommands() {
+    const result = await this.pool.query(
+      `
+        update commands
+        set
+          status = 'timed_out',
+          last_error = coalesce(
+            last_error,
+            'Discarded after gateway restart because the command was never started and exceeded the replay window'
+          ),
+          completed_at = coalesce(completed_at, now())
+        where status = 'queued'
+          and started_at is null
+          and created_at < now() - ($1 || ' milliseconds')::interval
+      `,
+      [this.env.commandReplayMaxAgeMs],
+    );
+
+    if ((result.rowCount ?? 0) > 0) {
+      console.warn(
+        `Gateway discarded ${result.rowCount} stale queued command(s) older than ${this.env.commandReplayMaxAgeMs}ms on startup`,
+      );
     }
   }
 

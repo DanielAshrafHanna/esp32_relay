@@ -58,8 +58,11 @@ The console lets you:
 For responsive relay triggering, the recommended gateway setting is:
 
 - `COMMAND_POLL_INTERVAL_MS=150`
+- `COMMAND_REPLAY_MAX_AGE_MS=5000`
 
 The gateway now uses a push-based PostgreSQL wake-up path for new commands and keeps the poll interval as a fallback safety net plus timeout cadence. `150ms` is still a good default for your current scale without making the worker noisy.
+
+To prevent old queued commands from replaying after a gateway restart, the gateway discards startup commands that were never started and are older than `COMMAND_REPLAY_MAX_AGE_MS`. This keeps stale relay actions from firing after a redeploy without interfering with normal in-progress pulse follow-up steps.
 
 When you trigger a relay from the console, the webhook status panel now shows a simple timing breakdown:
 

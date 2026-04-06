@@ -119,6 +119,7 @@ Set variables on the API service:
 - `JWT_EXPIRY_SECONDS=28800`
 - `MQTT_URL=mqtt://<mosquitto-private-host>:1883`
 - `COMMAND_POLL_INTERVAL_MS=150`
+- `COMMAND_REPLAY_MAX_AGE_MS=5000`
 - `COMMAND_STEP_TIMEOUT_MS=8000`
 - `DEVICE_REFRESH_INTERVAL_MS=30000`
 - `ALLOW_ORIGIN=*`
@@ -151,6 +152,7 @@ Use the same variables as the API service for:
 - `MQTT_USERNAME`
 - `MQTT_PASSWORD`
 - `COMMAND_POLL_INTERVAL_MS`
+- `COMMAND_REPLAY_MAX_AGE_MS`
 - `COMMAND_STEP_TIMEOUT_MS`
 - `DEVICE_REFRESH_INTERVAL_MS`
 - `JWT_SECRET`
@@ -160,6 +162,7 @@ Latency note:
 
 - the gateway now wakes immediately on new commands through PostgreSQL notifications
 - `COMMAND_POLL_INTERVAL_MS` still matters, but mainly as a fallback safety net and timeout cadence
+- `COMMAND_REPLAY_MAX_AGE_MS=5000` prevents stale never-started commands from replaying after a gateway restart
 - keep it around `150` for a stable default
 
 The gateway does not need public HTTP networking.

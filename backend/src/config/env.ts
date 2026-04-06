@@ -69,6 +69,7 @@ export interface EnvConfig {
   mqttPassword?: string;
   mqttClientIdPrefix: string;
   commandPollIntervalMs: number;
+  commandReplayMaxAgeMs: number;
   commandStepTimeoutMs: number;
   deviceRefreshIntervalMs: number;
 }
@@ -89,6 +90,7 @@ export function getEnv(): EnvConfig {
     mqttPassword: process.env.MQTT_PASSWORD,
     mqttClientIdPrefix: process.env.MQTT_CLIENT_ID_PREFIX ?? "solace-backend",
     commandPollIntervalMs: readNumber("COMMAND_POLL_INTERVAL_MS", 150),
+    commandReplayMaxAgeMs: readNumber("COMMAND_REPLAY_MAX_AGE_MS", 5000),
     commandStepTimeoutMs: readNumber("COMMAND_STEP_TIMEOUT_MS", 8000),
     deviceRefreshIntervalMs: readNumber("DEVICE_REFRESH_INTERVAL_MS", 30000),
   };
