@@ -54,6 +54,12 @@ The console lets you:
 - copy ready-to-use compatibility webhook `curl` commands per relay row
 - view latest board telemetry such as uptime, RSSI, heap, and MQTT status
 
+For responsive relay triggering, the recommended gateway setting is:
+
+- `COMMAND_POLL_INTERVAL_MS=150`
+
+The gateway now uses a push-based PostgreSQL wake-up path for new commands and keeps the poll interval as a fallback safety net plus timeout cadence. `150ms` is still a good default for your current scale without making the worker noisy.
+
 ## Current Branch Checkpoints
 
 Current recommended branch checkpoints before rollout:

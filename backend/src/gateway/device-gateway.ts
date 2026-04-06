@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import mqtt, { type IClientOptions, type MqttClient } from "mqtt";
+import pg, { type Client as PgClient } from "pg";
 import type { Pool, PoolClient } from "pg";
 import { getEnv } from "../config/env.js";
 import { normalizeReportedState } from "../domain/actions.js";
@@ -22,9 +23,13 @@ export class DeviceGateway {
   private static readonly DISCOVERY_AVAILABILITY_TOPIC = "homeassistant/switch/+/availability";
   private static readonly DISCOVERY_STATE_TOPIC = "homeassistant/switch/+/+/state";
   private static readonly DISCOVERY_TELEMETRY_TOPIC = "homeassistant/switch/+/telemetry";
+  private static readonly COMMAND_QUEUE_CHANNEL = "solace_command_queue";
   private readonly env = getEnv();
   private mqttClient: MqttClient | null = null;
+  private commandListener: PgClient | null = null;
   private running = false;
+  private commandProcessing = false;
+  private commandProcessingRequested = false;
   private readonly subscriptions = new Set<string>();
   private readonly outputTopicMap = new Map<string, OutputRecord>();
 
@@ -33,7 +38,9 @@ export class DeviceGateway {
   async start() {
     this.running = true;
     this.mqttClient = await this.connectMqtt();
+    await this.startCommandListener();
     await this.refreshDeviceTopics();
+    this.requestCommandProcessing();
     void this.subscriptionRefreshLoop();
     void this.commandLoop();
     void this.timeoutLoop();
@@ -41,6 +48,10 @@ export class DeviceGateway {
 
   async stop() {
     this.running = false;
+    if (this.commandListener) {
+      await this.commandListener.end();
+      this.commandListener = null;
+    }
     if (this.mqttClient) {
       await new Promise<void>((resolve) => this.mqttClient?.end(false, {}, () => resolve()));
     }
@@ -68,6 +79,25 @@ export class DeviceGateway {
     });
 
     return client;
+  }
+
+  private async startCommandListener() {
+    const client = new pg.Client({
+      connectionString: this.env.databaseUrl,
+    });
+
+    await client.connect();
+    await client.query(`listen ${DeviceGateway.COMMAND_QUEUE_CHANNEL}`);
+    client.on("notification", (message) => {
+      if (message.channel !== DeviceGateway.COMMAND_QUEUE_CHANNEL) {
+        return;
+      }
+      this.requestCommandProcessing();
+    });
+    client.on("error", (error) => {
+      console.error("Gateway command listener error", error);
+    });
+    this.commandListener = client;
   }
 
   private async subscriptionRefreshLoop() {
@@ -162,12 +192,7 @@ export class DeviceGateway {
 
   private async commandLoop() {
     while (this.running) {
-      try {
-        await this.processQueuedCommands();
-      } catch (error) {
-        console.error("Gateway command loop error", error);
-      }
-
+      this.requestCommandProcessing();
       await delay(this.env.commandPollIntervalMs);
     }
   }
@@ -184,9 +209,43 @@ export class DeviceGateway {
     }
   }
 
-  private async processQueuedCommands() {
-    if (!this.mqttClient?.connected) {
+  private requestCommandProcessing() {
+    if (!this.running) {
       return;
+    }
+
+    this.commandProcessingRequested = true;
+    if (this.commandProcessing) {
+      return;
+    }
+
+    this.commandProcessing = true;
+    void this.runCommandProcessingLoop();
+  }
+
+  private async runCommandProcessingLoop() {
+    try {
+      while (this.running && this.commandProcessingRequested) {
+        this.commandProcessingRequested = false;
+
+        let processed = 0;
+        do {
+          processed = await this.processQueuedCommands();
+        } while (this.running && processed > 0);
+      }
+    } catch (error) {
+      console.error("Gateway command loop error", error);
+    } finally {
+      this.commandProcessing = false;
+      if (this.running && this.commandProcessingRequested) {
+        this.requestCommandProcessing();
+      }
+    }
+  }
+
+  private async processQueuedCommands(): Promise<number> {
+    if (!this.mqttClient?.connected) {
+      return 0;
     }
 
     const client = await this.pool.connect();
@@ -271,6 +330,7 @@ export class DeviceGateway {
       }
 
       await client.query("commit");
+      return result.rowCount ?? 0;
     } catch (error) {
       await client.query("rollback");
       throw error;

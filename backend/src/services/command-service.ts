@@ -18,6 +18,7 @@ import { mapCommandRow } from "./mappers.js";
 import { OutputService } from "./output-service.js";
 
 export class CommandService {
+  private static readonly COMMAND_QUEUE_CHANNEL = "solace_command_queue";
   private readonly env = getEnv();
 
   constructor(
@@ -97,73 +98,101 @@ export class CommandService {
       throw new AppError(`Device '${output.deviceDisplayName}' is disabled for webhook/API commands`, 403, "device_disabled");
     }
 
-    await this.pool.query(
-      `
-        update commands
-        set
-          status = 'timed_out',
-          last_error = coalesce(last_error, 'Expired before a new command was accepted'),
-          completed_at = coalesce(completed_at, now())
-        where output_id = $1
-          and (
-            (status = 'waiting_state' and step_timeout_at is not null and step_timeout_at < now())
-            or
-            (status = 'queued' and deadline_at is not null and deadline_at < now())
-          )
-      `,
-      [output.id],
-    );
-
-    const inflight = await this.pool.query(
-      `
-        select 1
-        from commands
-        where output_id = $1
-          and status in ('queued', 'waiting_state')
-        limit 1
-      `,
-      [output.id],
-    );
-
-    if (inflight.rowCount) {
-      throw new ConflictError("Output already has an in-flight command");
-    }
-
+    const client = await this.pool.connect();
     const commandId = createId();
-    const result = await this.pool.query(
-      `
-        insert into commands (
-          id, customer_id, output_id, source_type, source_id, client_request_id,
-          logical_action, requested_state, requested_duration_ms, status, transport_version,
-          steps, current_step, next_step_at, deadline_at, result_payload
-        )
-        values (
-          $1, $2, $3, $4, $5, $6,
-          $7, $8, $9, 'queued', $10,
-          $11::jsonb, 0, now(), now() + ($12 || ' milliseconds')::interval, $13::jsonb
-        )
-        returning *
-      `,
-      [
-        commandId,
-        output.customerId,
-        output.id,
-        sourceType,
-        principal.subjectId,
-        clientRequestId,
-        plan.logicalAction,
-        plan.requestedState,
-        plan.requestedDurationMs,
-        plan.transportVersion,
-        JSON.stringify(plan.steps),
-        this.env.commandStepTimeoutMs * Math.max(1, plan.steps.length + 1),
-        JSON.stringify({
-          output_id: output.id,
-          output_name: output.displayName,
-          expected_final_state: plan.expectedFinalState,
-        }),
-      ],
-    );
+    let command: CommandRecord;
+    try {
+      await client.query("begin");
+      await client.query(
+        `
+          update commands
+          set
+            status = 'timed_out',
+            last_error = coalesce(last_error, 'Expired before a new command was accepted'),
+            completed_at = coalesce(completed_at, now())
+          where output_id = $1
+            and (
+              (status = 'waiting_state' and step_timeout_at is not null and step_timeout_at < now())
+              or
+              (status = 'queued' and deadline_at is not null and deadline_at < now())
+            )
+        `,
+        [output.id],
+      );
+
+      const inflight = await client.query(
+        `
+          select 1
+          from commands
+          where output_id = $1
+            and status in ('queued', 'waiting_state')
+          limit 1
+          for update
+        `,
+        [output.id],
+      );
+
+      if (inflight.rowCount) {
+        throw new ConflictError("Output already has an in-flight command");
+      }
+
+      const result = await client.query(
+        `
+          insert into commands (
+            id, customer_id, output_id, source_type, source_id, client_request_id,
+            logical_action, requested_state, requested_duration_ms, status, transport_version,
+            steps, current_step, next_step_at, deadline_at, result_payload
+          )
+          values (
+            $1, $2, $3, $4, $5, $6,
+            $7, $8, $9, 'queued', $10,
+            $11::jsonb, 0, now(), now() + ($12 || ' milliseconds')::interval, $13::jsonb
+          )
+          returning *
+        `,
+        [
+          commandId,
+          output.customerId,
+          output.id,
+          sourceType,
+          principal.subjectId,
+          clientRequestId,
+          plan.logicalAction,
+          plan.requestedState,
+          plan.requestedDurationMs,
+          plan.transportVersion,
+          JSON.stringify(plan.steps),
+          this.env.commandStepTimeoutMs * Math.max(1, plan.steps.length + 1),
+          JSON.stringify({
+            output_id: output.id,
+            output_name: output.displayName,
+            expected_final_state: plan.expectedFinalState,
+          }),
+        ],
+      );
+
+      await client.query(
+        `
+          select pg_notify($1, $2)
+        `,
+        [
+          CommandService.COMMAND_QUEUE_CHANNEL,
+          JSON.stringify({
+            command_id: commandId,
+            output_id: output.id,
+            customer_id: output.customerId,
+          }),
+        ],
+      );
+
+      await client.query("commit");
+      command = mapCommandRow(result.rows[0]);
+    } catch (error) {
+      await client.query("rollback");
+      throw error;
+    } finally {
+      client.release();
+    }
 
     await this.auditService.log(principal, output.customerId, "command.created", "command", commandId, {
       output_id: output.id,
@@ -174,6 +203,6 @@ export class CommandService {
       steps: plan.steps,
     });
 
-    return mapCommandRow(result.rows[0]);
+    return command;
   }
 }

@@ -88,7 +88,7 @@ export function getEnv(): EnvConfig {
     mqttUsername: process.env.MQTT_USERNAME,
     mqttPassword: process.env.MQTT_PASSWORD,
     mqttClientIdPrefix: process.env.MQTT_CLIENT_ID_PREFIX ?? "solace-backend",
-    commandPollIntervalMs: readNumber("COMMAND_POLL_INTERVAL_MS", 1000),
+    commandPollIntervalMs: readNumber("COMMAND_POLL_INTERVAL_MS", 150),
     commandStepTimeoutMs: readNumber("COMMAND_STEP_TIMEOUT_MS", 8000),
     deviceRefreshIntervalMs: readNumber("DEVICE_REFRESH_INTERVAL_MS", 30000),
   };
