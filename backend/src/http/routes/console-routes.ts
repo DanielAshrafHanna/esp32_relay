@@ -255,7 +255,7 @@ function consoleHtml() {
         <button class="secondary" id="load-devices">Load Devices</button>
         <button class="secondary" id="load-outputs">Load Outputs</button>
       </div>
-      <div id="auth-status" class="status">No active admin session yet. Load Devices fetches board-level records like title, MQTT hostname, and enabled status. Load Outputs fetches the per-relay rows, profiles, and last known states.</div>
+      <div id="auth-status" class="status">No active admin session yet. Load Devices fetches board-level records and discovered MQTT boards. Load Outputs fetches the per-relay rows, profiles, and last known states for claimed boards.</div>
     </section>
 
     <section class="card" style="margin-bottom:20px;">
@@ -294,7 +294,7 @@ function consoleHtml() {
     <section class="card" style="margin-bottom:20px;">
       <div class="toolbar">
         <h2>Board Onboarding</h2>
-        <div class="muted">Create a new relay board record, generate 8 relay outputs, and get the exact MQTT bootstrap line for Railway.</div>
+        <div class="muted">Create a relay board manually, or claim one from the discovered list below if it already connected to MQTT.</div>
       </div>
       <div class="grid-4">
         <div>
@@ -320,6 +320,15 @@ function consoleHtml() {
       <div id="provisioning-status" class="status">Create a board here, then paste the returned bootstrap line into the secure Mosquitto service variable <span class="mono">MQTT_BOOTSTRAP_USERS</span>.</div>
     </section>
 
+    <section class="card" style="margin-bottom:20px;">
+      <div class="toolbar">
+        <h2>Discovered Boards</h2>
+        <div class="muted">Unknown ESP boards that connected to MQTT appear here. Claim one to create it in the middleware without typing the hostname twice.</div>
+      </div>
+      <div id="discovery-list"></div>
+      <div id="discovery-status" class="status">Load Devices to refresh discovered MQTT boards.</div>
+    </section>
+
     <section class="card">
       <div class="toolbar">
         <h2>Relay Boards</h2>
@@ -334,12 +343,15 @@ function consoleHtml() {
     const state = {
       token: localStorage.getItem("solace_admin_token") || "",
       outputs: [],
-      devices: []
+      devices: [],
+      discoveredBoards: []
     };
 
     const authStatus = document.getElementById("auth-status");
     const webhookStatus = document.getElementById("webhook-status");
     const provisioningStatus = document.getElementById("provisioning-status");
+    const discoveryStatus = document.getElementById("discovery-status");
+    const discoveryList = document.getElementById("discovery-list");
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
 
@@ -500,6 +512,37 @@ function consoleHtml() {
       }
     }
 
+    function renderDiscoveredBoards() {
+      if (!state.discoveredBoards.length) {
+        discoveryList.innerHTML = '<div class="muted">No unclaimed MQTT boards discovered yet.</div>';
+        return;
+      }
+
+      discoveryList.innerHTML = state.discoveredBoards.map((board) => \`
+        <div class="device-section" style="margin-bottom:12px;">
+          <div class="device-head">
+            <div>
+              <h3>\${board.mqttHostname}</h3>
+              <div class="device-meta">
+                <span>Availability: \${board.availability}</span>
+                <span>Highest Channel Seen: \${board.highestChannel || "unknown"}</span>
+                <span class="mono">Last Seen: \${board.lastSeenAt}</span>
+              </div>
+            </div>
+            <div style="min-width:340px;">
+              <label>Board Title</label>
+              <input data-discovery-field="display_name" data-mqtt-hostname="\${board.mqttHostname}" value="">
+              <label style="margin-top:10px;">Device Key</label>
+              <input data-discovery-field="device_key" data-mqtt-hostname="\${board.mqttHostname}" value="\${board.mqttHostname}">
+              <div class="actions" style="margin-top:10px;">
+                <button class="claim-board-btn" data-mqtt-hostname="\${board.mqttHostname}" data-channel-count="\${board.highestChannel || 8}">Claim Board</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      \`).join("");
+    }
+
     async function login() {
       const email = document.getElementById("email").value.trim();
       const password = document.getElementById("password").value;
@@ -530,7 +573,21 @@ function consoleHtml() {
       if (!silent) {
         setStatus(authStatus, "Loaded " + state.devices.length + " device(s).", "ok");
       }
+      await loadDiscoveredBoards(true);
       renderOutputs();
+    }
+
+    async function loadDiscoveredBoards(silent = false) {
+      const response = await fetch("/v1/discovery/boards", { headers: authHeaders(true) });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to load discovered boards");
+      }
+      state.discoveredBoards = data.boards || [];
+      renderDiscoveredBoards();
+      if (!silent) {
+        setStatus(discoveryStatus, "Loaded " + state.discoveredBoards.length + " discovered board(s).", "ok");
+      }
     }
 
     async function loadOutputs() {
@@ -662,7 +719,9 @@ function consoleHtml() {
       state.outputs = state.outputs
         .filter((output) => output.deviceId !== data.device.id)
         .concat(data.outputs || []);
+      state.discoveredBoards = state.discoveredBoards.filter((board) => board.mqttHostname !== data.device.mqttHostname);
       renderOutputs();
+      renderDiscoveredBoards();
 
       const bootstrapLine = data.mqttBootstrapEntry || "";
       const credentials = data.credentials || {};
@@ -681,6 +740,47 @@ function consoleHtml() {
 
       document.getElementById("new-board-device-key").value = data.device.deviceKey || "";
       document.getElementById("new-board-hostname").value = data.device.mqttHostname || "";
+    }
+
+    async function claimDiscoveredBoard(mqttHostname, channelCount) {
+      const displayName = document.querySelector('[data-discovery-field="display_name"][data-mqtt-hostname="' + mqttHostname + '"]').value.trim();
+      const deviceKey = document.querySelector('[data-discovery-field="device_key"][data-mqtt-hostname="' + mqttHostname + '"]').value.trim();
+      const response = await fetch("/v1/discovery/boards/" + encodeURIComponent(mqttHostname) + "/claim", {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({
+          display_name: displayName || undefined,
+          device_key: deviceKey || undefined,
+          channel_count: channelCount ? Number(channelCount) : 8
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to claim discovered board");
+      }
+
+      state.devices.push(data.device);
+      state.outputs = state.outputs
+        .filter((output) => output.deviceId !== data.device.id)
+        .concat(data.outputs || []);
+      state.discoveredBoards = state.discoveredBoards.filter((board) => board.mqttHostname !== mqttHostname);
+      renderDiscoveredBoards();
+      renderOutputs();
+
+      const bootstrapLine = data.mqttBootstrapEntry || "";
+      const credentials = data.credentials || {};
+      setStatus(
+        provisioningStatus,
+        [
+          "Claimed board: " + (data.device.displayName || data.device.deviceKey),
+          "MQTT username: " + (credentials.username || ""),
+          "MQTT password: " + (credentials.password || ""),
+          "Add this line to secure broker MQTT_BOOTSTRAP_USERS:",
+          bootstrapLine
+        ].join("\\n"),
+        "ok"
+      );
+      setStatus(discoveryStatus, "Claimed discovered board " + mqttHostname + ".", "ok");
     }
 
     document.getElementById("login-btn").addEventListener("click", async () => {
@@ -761,6 +861,14 @@ function consoleHtml() {
           await deleteDevice(target.dataset.deviceId, target.dataset.deviceName || "this board");
         } catch (error) {
           setStatus(outputsStatus, error.message, "error");
+        }
+      }
+
+      if (target.classList.contains("claim-board-btn")) {
+        try {
+          await claimDiscoveredBoard(target.dataset.mqttHostname, target.dataset.channelCount);
+        } catch (error) {
+          setStatus(discoveryStatus, error.message, "error");
         }
       }
 

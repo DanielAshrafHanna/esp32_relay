@@ -2,10 +2,9 @@ import { randomBytes } from "node:crypto";
 import type { Pool } from "pg";
 import { AppError } from "../lib/errors.js";
 import { createId, hashSecret } from "../lib/security.js";
-import type { AuthPrincipal, DeviceCredentialRecord } from "../types/domain.js";
+import type { AuthPrincipal, DeviceCredentialRecord, DiscoveredBoardRecord } from "../types/domain.js";
 import { AuditService } from "./audit-service.js";
 import { assertScope } from "./authz.js";
-import { mapDeviceRow } from "./mappers.js";
 import { OutputService } from "./output-service.js";
 
 export class ProvisioningService {
@@ -125,6 +124,17 @@ export class ProvisioningService {
 
     const credentials = await this.issueDeviceCredentials(principal, device.id);
 
+    await this.pool.query(
+      `
+        update discovered_devices
+        set
+          claimed_device_id = $2,
+          metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{claimed_at}', to_jsonb(now()::text), true)
+        where mqtt_hostname = $1
+      `,
+      [device.mqttHostname, device.id],
+    );
+
     await this.auditService.log(principal, device.customerId, "device.created", "device", device.id, {
       device_key: device.deviceKey,
       mqtt_hostname: device.mqttHostname,
@@ -138,6 +148,88 @@ export class ProvisioningService {
       mqttBootstrapEntry: `${credentials.username}:${credentials.password}`,
     };
   }
+
+  async listDiscoveredBoards(principal: AuthPrincipal): Promise<DiscoveredBoardRecord[]> {
+    assertScope(principal, "provisioning:write");
+
+    const result = await this.pool.query(
+      `
+        select
+          dd.mqtt_hostname,
+          dd.availability,
+          dd.first_seen_at,
+          dd.last_seen_at,
+          dd.highest_channel,
+          dd.last_state_topic,
+          dd.claimed_device_id,
+          dd.metadata
+        from discovered_devices dd
+        left join devices d on d.id = dd.claimed_device_id
+        where dd.claimed_device_id is null
+           or d.id is null
+        order by dd.last_seen_at desc, dd.mqtt_hostname asc
+      `,
+    );
+
+    return result.rows.map((row) => mapDiscoveredBoardRow(row as Record<string, unknown>));
+  }
+
+  async claimDiscoveredBoard(
+    principal: AuthPrincipal,
+    mqttHostname: string,
+    input: {
+      customerId?: string;
+      siteId?: string | null;
+      deviceKey?: string;
+      displayName?: string;
+      transportVersion?: "legacy_ha" | "solace_v1";
+      channelCount?: number;
+    },
+  ) {
+    assertScope(principal, "provisioning:write");
+
+    const normalized = normalizeIdentifier(mqttHostname);
+    if (!normalized) {
+      throw new AppError("mqtt_hostname is required", 400, "missing_mqtt_hostname");
+    }
+
+    const discoveredResult = await this.pool.query(
+      `
+        select *
+        from discovered_devices
+        where mqtt_hostname = $1
+      `,
+      [normalized],
+    );
+
+    if (!discoveredResult.rowCount) {
+      throw new AppError("Discovered board not found", 404, "discovered_board_not_found");
+    }
+
+    const discovered = mapDiscoveredBoardRow(discoveredResult.rows[0]);
+    const board = await this.createBoard(principal, {
+      customerId: input.customerId,
+      siteId: input.siteId,
+      deviceKey: input.deviceKey ?? normalized,
+      mqttHostname: normalized,
+      displayName: input.displayName,
+      transportVersion: input.transportVersion,
+      channelCount: input.channelCount ?? Math.min(Math.max(discovered.highestChannel || 8, 1), 8),
+    });
+
+    await this.pool.query(
+      `
+        update discovered_devices
+        set
+          claimed_device_id = $2,
+          metadata = jsonb_set(coalesce(metadata, '{}'::jsonb), '{claimed_at}', to_jsonb(now()::text), true)
+        where mqtt_hostname = $1
+      `,
+      [normalized, board.device.id],
+    );
+
+    return board;
+  }
 }
 
 function normalizeIdentifier(value: string): string {
@@ -147,4 +239,17 @@ function normalizeIdentifier(value: string): string {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/--+/g, "-");
+}
+
+function mapDiscoveredBoardRow(row: Record<string, unknown>): DiscoveredBoardRecord {
+  return {
+    mqttHostname: String(row.mqtt_hostname),
+    availability: row.availability as DiscoveredBoardRecord["availability"],
+    firstSeenAt: String(row.first_seen_at),
+    lastSeenAt: String(row.last_seen_at),
+    highestChannel: Number(row.highest_channel ?? 0),
+    lastStateTopic: row.last_state_topic ? String(row.last_state_topic) : null,
+    claimedDeviceId: row.claimed_device_id ? String(row.claimed_device_id) : null,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+  };
 }

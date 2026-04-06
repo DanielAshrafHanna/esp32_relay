@@ -185,4 +185,36 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     reply.code(201);
     return board;
   });
+
+  app.get("/v1/discovery/boards", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    return {
+      boards: await services.provisioningService.listDiscoveredBoards(principal),
+    };
+  });
+
+  app.post("/v1/discovery/boards/:mqtt_hostname/claim", async (request, reply) => {
+    const principal = await requirePrincipal(request, services);
+    const params = request.params as { mqtt_hostname: string };
+    const body = (request.body ?? {}) as {
+      customer_id?: string;
+      site_id?: string | null;
+      device_key?: string;
+      display_name?: string;
+      transport_version?: "legacy_ha" | "solace_v1";
+      channel_count?: number;
+    };
+
+    const board = await services.provisioningService.claimDiscoveredBoard(principal, params.mqtt_hostname, {
+      customerId: body.customer_id,
+      siteId: body.site_id,
+      deviceKey: body.device_key,
+      displayName: body.display_name,
+      transportVersion: body.transport_version,
+      channelCount: body.channel_count,
+    });
+
+    reply.code(201);
+    return board;
+  });
 }

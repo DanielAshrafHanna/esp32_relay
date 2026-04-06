@@ -358,7 +358,18 @@ Because the ACL uses `%u`, that board will only be able to access `homeassistant
 
 You no longer have to create new board rows manually in the database.
 
-Use the middleware console `Board Onboarding` section or call:
+Preferred flow:
+
+1. connect the ESP to the broker
+2. open the middleware console
+3. click `Load Devices`
+4. look in `Discovered Boards`
+5. click `Claim Board`
+6. append the returned `mqttBootstrapEntry` to `MQTT_BOOTSTRAP_USERS`
+7. redeploy the secure broker
+8. update the ESP to use the returned username/password if needed
+
+You can also use the manual fallback flow and call:
 
 - `POST /v1/provisioning/boards`
 
@@ -382,6 +393,12 @@ The response includes:
 - `mqttBootstrapEntry`
 
 Take that `mqttBootstrapEntry`, append it to `MQTT_BOOTSTRAP_USERS`, redeploy the secure broker, then enter the same username/password on the ESP.
+
+The discovery-backed claim route is:
+
+- `POST /v1/discovery/boards/:mqtt_hostname/claim`
+
+Use that when the board has already appeared in `Discovered Boards`.
 
 ## Removing A Board
 

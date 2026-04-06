@@ -91,6 +91,17 @@ export interface DeviceCredentialRecord {
   revokedAt: string | null;
 }
 
+export interface DiscoveredBoardRecord {
+  mqttHostname: string;
+  availability: DeviceAvailability;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  highestChannel: number;
+  lastStateTopic: string | null;
+  claimedDeviceId: string | null;
+  metadata: Record<string, unknown>;
+}
+
 export interface TransportStep {
   type: "publish";
   topic: string;

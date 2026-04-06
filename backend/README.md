@@ -215,6 +215,8 @@ Core native routes:
 - `GET /v1/commands/:id`
 - `POST /v1/provisioning/boards`
 - `POST /v1/provisioning/device-credentials`
+- `GET /v1/discovery/boards`
+- `POST /v1/discovery/boards/:mqtt_hostname/claim`
 
 Admin login:
 
@@ -359,9 +361,12 @@ The console now renders board sections after `Load Devices`, even before outputs
 
 ## Board Onboarding Flow
 
-The console now includes a `Board Onboarding` card for creating a new relay board without manually creating DB rows first.
+The console now supports two onboarding paths:
 
-It will:
+- preferred: let the ESP connect first and claim it from `Discovered Boards`
+- fallback: use `Board Onboarding` to create a board manually
+
+The manual `Board Onboarding` flow will:
 
 - create the device record
 - create the default 8 outputs
@@ -411,6 +416,39 @@ Typical response shape:
 }
 ```
 
+## Discovery And Claim Flow
+
+The gateway now subscribes to wildcard legacy MQTT topics and records unknown boards in `discovered_devices`.
+
+What this means operationally:
+
+- if an ESP connects to MQTT with a hostname the middleware does not know yet
+- the board appears in the console under `Discovered Boards`
+- you can click `Claim Board`
+- the middleware creates the device, creates its relay outputs, issues MQTT credentials, and returns the broker bootstrap line
+
+This is the preferred workflow for new boards because it feels closer to automatic discovery while still keeping the final board claim explicit and safe.
+
+Native discovery routes:
+
+- `GET /v1/discovery/boards`
+- `POST /v1/discovery/boards/:mqtt_hostname/claim`
+
+Example:
+
+```bash
+curl -X POST https://esp32relay-production.up.railway.app/v1/discovery/boards/dany/claim \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "display_name": "Dany Main Board",
+    "device_key": "dany",
+    "channel_count": 8
+  }'
+```
+
+If you delete a claimed board later, its discovery record can still reappear when the ESP reconnects, because discovery is now stored separately from the claimed device record.
+
 ## Relay Board Sections
 
 The console groups outputs by relay board instead of showing one flat list.
@@ -428,7 +466,7 @@ If you set a custom board title in the middleware console, that custom title ove
 
 If you later want the board title to originate from the ESP `/solaceadmin` page and sync automatically into middleware, that can be added as a follow-up feature.
 
-You can also delete a board directly from its section header. Deleting a board removes the device record and cascades to its outputs and broker credentials stored in the middleware database. If the board also has a broker user in Railway `MQTT_BOOTSTRAP_USERS`, remove that line there too and redeploy the secure broker.
+You can also delete a board directly from its section header. Deleting a board removes the claimed device record and cascades to its outputs and middleware-stored credentials. If the board also has a broker user in Railway `MQTT_BOOTSTRAP_USERS`, remove that line there too and redeploy the secure broker.
 
 ## Current Test Webhooks
 

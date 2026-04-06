@@ -19,6 +19,8 @@ interface GatewayCommandRow {
 }
 
 export class DeviceGateway {
+  private static readonly DISCOVERY_AVAILABILITY_TOPIC = "homeassistant/switch/+/availability";
+  private static readonly DISCOVERY_STATE_TOPIC = "homeassistant/switch/+/+/state";
   private readonly env = getEnv();
   private mqttClient: MqttClient | null = null;
   private running = false;
@@ -59,7 +61,9 @@ export class DeviceGateway {
     });
 
     client.on("message", (topic, payload) => {
-      void this.handleMessage(topic, payload.toString("utf8"));
+      void this.handleMessage(topic, payload.toString("utf8")).catch((error) => {
+        console.error("Gateway MQTT message handling error", error);
+      });
     });
 
     return client;
@@ -103,8 +107,12 @@ export class DeviceGateway {
       `,
     );
 
-    const desiredTopics = new Set<string>();
+    const desiredTopics = new Set<string>([
+      DeviceGateway.DISCOVERY_AVAILABILITY_TOPIC,
+      DeviceGateway.DISCOVERY_STATE_TOPIC,
+    ]);
     const outputs = result.rows.map((row) => mapOutputRow(row as Record<string, unknown>));
+    this.outputTopicMap.clear();
 
     for (const output of outputs) {
       if (output.transportVersion !== "legacy_ha") {
@@ -112,10 +120,6 @@ export class DeviceGateway {
       }
 
       const stateTopic = `homeassistant/switch/${output.mqttHostname}/relay${output.channel}/state`;
-      const availabilityTopic = `homeassistant/switch/${output.mqttHostname}/availability`;
-
-      desiredTopics.add(stateTopic);
-      desiredTopics.add(availabilityTopic);
       this.outputTopicMap.set(stateTopic, output);
     }
 
@@ -305,18 +309,30 @@ export class DeviceGateway {
 
     const hostname = match[1];
     const availability = payload === "online" ? "online" : "offline";
-    await this.pool.query(
+    const result = await this.pool.query(
       `
         update devices
         set availability = $2, last_seen_at = now(), updated_at = now()
         where mqtt_hostname = $1
+        returning id
       `,
       [hostname, availability],
     );
+
+    if (!result.rowCount) {
+      await this.recordDiscoveredBoard(hostname, availability, payload);
+    }
   }
 
   private async handleState(topic: string, payload: string) {
     const output = this.outputTopicMap.get(topic);
+    const topicMatch = topic.match(/^homeassistant\/switch\/([^/]+)\/(relay(\d+))\/state$/);
+    if (topicMatch && !output) {
+      const hostname = topicMatch[1];
+      const channel = Number(topicMatch[3]);
+      await this.recordDiscoveredState(hostname, channel, topic, payload);
+    }
+
     if (!output) {
       return;
     }
@@ -342,6 +358,51 @@ export class DeviceGateway {
     );
 
     await this.advanceCommandIfMatched(output.id, normalizedState, topic, payload);
+  }
+
+  private async recordDiscoveredBoard(hostname: string, availability: "online" | "offline", payload: string) {
+    await this.pool.query(
+      `
+        insert into discovered_devices (
+          mqtt_hostname, availability, first_seen_at, last_seen_at, last_payload
+        )
+        values ($1, $2, now(), now(), $3::jsonb)
+        on conflict (mqtt_hostname)
+        do update set
+          availability = excluded.availability,
+          last_seen_at = excluded.last_seen_at,
+          last_payload = excluded.last_payload
+      `,
+      [hostname, availability, JSON.stringify({ availability, payload, topic: `homeassistant/switch/${hostname}/availability` })],
+    );
+  }
+
+  private async recordDiscoveredState(hostname: string, channel: number, topic: string, payload: string) {
+    await this.pool.query(
+      `
+        update devices
+        set availability = 'online', last_seen_at = now(), updated_at = now()
+        where mqtt_hostname = $1
+      `,
+      [hostname],
+    );
+
+    await this.pool.query(
+      `
+        insert into discovered_devices (
+          mqtt_hostname, availability, first_seen_at, last_seen_at, highest_channel, last_state_topic, last_payload
+        )
+        values ($1, 'online', now(), now(), $2, $3, $4::jsonb)
+        on conflict (mqtt_hostname)
+        do update set
+          availability = 'online',
+          last_seen_at = now(),
+          highest_channel = greatest(discovered_devices.highest_channel, excluded.highest_channel),
+          last_state_topic = excluded.last_state_topic,
+          last_payload = excluded.last_payload
+      `,
+      [hostname, channel, topic, JSON.stringify({ topic, payload, channel })],
+    );
   }
 
   private async advanceCommandIfMatched(outputId: string, state: OutputState, topic: string, payload: string) {
