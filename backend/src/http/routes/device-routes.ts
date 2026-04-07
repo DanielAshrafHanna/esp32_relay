@@ -29,6 +29,27 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     return site;
   });
 
+  app.patch("/v1/sites/:id", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    const params = request.params as { id: string };
+    const body = (request.body ?? {}) as { name?: string };
+
+    return services.outputService.updateSite(principal, params.id, {
+      name: body.name,
+    });
+  });
+
+  app.delete("/v1/sites/:id", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    const params = request.params as { id: string };
+    const deleted = await services.outputService.deleteSite(principal, params.id);
+
+    return {
+      ok: true,
+      deleted,
+    };
+  });
+
   app.get("/v1/devices", async (request) => {
     const principal = await requirePrincipal(request, services);
     return {

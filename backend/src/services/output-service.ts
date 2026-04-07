@@ -141,10 +141,13 @@ export class OutputService {
           s.id,
           s.customer_id,
           c.name as customer_name,
-          s.name
+          s.name,
+          count(d.id)::int as board_count
         from sites s
         join customers c on c.id = s.customer_id
+        left join devices d on d.site_id = s.id
         where s.customer_id = any($1::uuid[])
+        group by s.id, s.customer_id, c.name, s.name
         order by c.name asc, s.name asc
       `,
       [principal.customerIds],
@@ -155,6 +158,7 @@ export class OutputService {
       customerId: String(row.customer_id),
       customerName: row.customer_name ? String(row.customer_name) : null,
       name: String(row.name),
+      boardCount: Number(row.board_count ?? 0),
     }));
   }
 
@@ -190,6 +194,7 @@ export class OutputService {
         customerId: String(result.rows[0].customer_id),
         customerName: String(customerResult.rows[0].name),
         name: String(result.rows[0].name),
+        boardCount: 0,
       };
     } catch (error) {
       if (typeof error === "object" && error && "code" in error && error.code === "23505") {
@@ -233,6 +238,76 @@ export class OutputService {
     const device = mapDeviceRow(result.rows[0]);
     assertCustomerAccess(principal, device.customerId);
     return device;
+  }
+
+  async updateSite(
+    principal: AuthPrincipal,
+    siteId: string,
+    input: { name?: string },
+  ): Promise<SiteRecord> {
+    assertScope(principal, "provisioning:write");
+
+    const existing = await this.pool.query(
+      `
+        select s.id, s.customer_id, c.name as customer_name, s.name
+        from sites s
+        join customers c on c.id = s.customer_id
+        where s.id = $1
+      `,
+      [siteId],
+    );
+
+    if (!existing.rowCount) {
+      throw new NotFoundError("Site not found");
+    }
+
+    const customerId = String(existing.rows[0].customer_id);
+    assertCustomerAccess(principal, customerId);
+
+    const nextName = input.name?.trim();
+    if (!nextName) {
+      throw new AppError("Site name is required", 400, "missing_site_name");
+    }
+
+    try {
+      await this.pool.query(
+        `
+          update sites
+          set name = $2, updated_at = now()
+          where id = $1
+        `,
+        [siteId, nextName],
+      );
+    } catch (error) {
+      if (typeof error === "object" && error && "code" in error && error.code === "23505") {
+        throw new AppError("A site with this name already exists for the customer", 409, "site_conflict");
+      }
+      throw error;
+    }
+
+    const refreshed = await this.listSites(principal);
+    const site = refreshed.find((item) => item.id === siteId);
+    if (!site) {
+      throw new NotFoundError("Site not found");
+    }
+    return site;
+  }
+
+  async deleteSite(principal: AuthPrincipal, siteId: string): Promise<SiteRecord> {
+    assertScope(principal, "provisioning:write");
+
+    const sites = await this.listSites(principal);
+    const site = sites.find((item) => item.id === siteId);
+    if (!site) {
+      throw new NotFoundError("Site not found");
+    }
+
+    if (site.boardCount > 0) {
+      throw new AppError("Move or unassign all boards before deleting this site", 409, "site_not_empty");
+    }
+
+    await this.pool.query("delete from sites where id = $1", [siteId]);
+    return site;
   }
 
   async listOutputs(principal: AuthPrincipal): Promise<OutputRecord[]> {

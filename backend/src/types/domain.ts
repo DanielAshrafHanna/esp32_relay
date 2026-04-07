@@ -71,6 +71,7 @@ export interface SiteRecord {
   customerId: string;
   customerName: string | null;
   name: string;
+  boardCount: number;
 }
 
 export interface DeviceRecord {

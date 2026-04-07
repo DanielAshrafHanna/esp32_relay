@@ -230,6 +230,26 @@ function consoleHtml() {
       color: var(--muted);
       font-size: 0.92rem;
     }
+    .site-manager {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .site-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) auto auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border: 1px solid rgba(24, 32, 39, 0.08);
+      border-radius: 14px;
+      background: rgba(255,255,255,0.7);
+    }
+    .site-row-meta {
+      font-size: 0.84rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
     .device-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
@@ -388,8 +408,10 @@ function consoleHtml() {
           <button id="create-site-btn">Create Site</button>
         </div>
         <div style="grid-column: span 2;">
-          <label for="known-sites-preview">Current Sites</label>
-          <input id="known-sites-preview" value="Load Devices to list sites" disabled>
+          <label>Current Sites</label>
+          <div id="site-list" class="site-manager">
+            <div class="muted">Load Devices to list sites.</div>
+          </div>
         </div>
       </div>
       <div id="site-status" class="status">Create a site first if you want boards grouped somewhere other than the default Main Site.</div>
@@ -538,7 +560,7 @@ function consoleHtml() {
     const availabilityFilterInput = document.getElementById("availability-filter");
     const boardSummary = document.getElementById("board-summary");
     const newBoardSiteInput = document.getElementById("new-board-site");
-    const knownSitesPreview = document.getElementById("known-sites-preview");
+    const siteList = document.getElementById("site-list");
 
     if (serviceTokenInput instanceof HTMLInputElement) {
       serviceTokenInput.value = state.serviceToken;
@@ -646,14 +668,27 @@ function consoleHtml() {
       return options.join("");
     }
 
-    function refreshKnownSitesPreview() {
-      if (!(knownSitesPreview instanceof HTMLInputElement)) {
+    function renderSiteList() {
+      if (!(siteList instanceof HTMLElement)) {
         return;
       }
 
-      knownSitesPreview.value = state.sites.length
-        ? state.sites.map((site) => formatSiteLabel(site)).join(" | ")
-        : "No sites yet";
+      if (!state.sites.length) {
+        siteList.innerHTML = '<div class="muted">No sites yet.</div>';
+        return;
+      }
+
+      siteList.innerHTML = state.sites.map((site) => {
+        return '<div class="site-row">' +
+          '<input data-site-field="name" data-site-id="' + escapeHtml(site.id) + '" value="' + escapeHtml(site.name) + '">' +
+          '<div class="site-row-meta">' + escapeHtml(site.customerName || "No customer") + '</div>' +
+          '<div class="site-row-meta">' + site.boardCount + ' board(s)</div>' +
+          '<div class="actions">' +
+            '<button class="secondary mini-btn save-site-btn" data-site-id="' + escapeHtml(site.id) + '">Save</button>' +
+            '<button class="warn mini-btn delete-site-btn" data-site-id="' + escapeHtml(site.id) + '" data-site-name="' + escapeHtml(site.name) + '">Delete</button>' +
+          '</div>' +
+        '</div>';
+      }).join("");
     }
 
     function refreshSiteSelectors() {
@@ -665,7 +700,7 @@ function consoleHtml() {
         }
       }
 
-      refreshKnownSitesPreview();
+      renderSiteList();
     }
 
     function parseIsoTime(value) {
@@ -1297,6 +1332,7 @@ function consoleHtml() {
       state.outputs = state.outputs.map((output) => output.deviceId === data.id
         ? { ...output, deviceDisplayName: data.displayName, deviceDesiredEnabled: data.desiredEnabled }
         : output);
+      await loadSites(true);
       refreshSiteSelectors();
       renderOutputs();
       setStatus(outputsStatus, "Saved board " + data.displayName + ".", "ok");
@@ -1317,6 +1353,7 @@ function consoleHtml() {
         throw new Error(data.message || "Failed to delete board");
       }
 
+      await loadSites(true);
       await loadDevices(true);
       await loadOutputs();
       setStatus(outputsStatus, "Deleted board " + (data.deleted?.displayName || name) + ".", "ok");
@@ -1426,6 +1463,7 @@ function consoleHtml() {
         .filter((output) => output.deviceId !== data.device.id)
         .concat(data.outputs || []);
       state.discoveredBoards = state.discoveredBoards.filter((board) => board.mqttHostname !== data.device.mqttHostname);
+      await loadSites(true);
       renderOutputs();
       renderDiscoveredBoards();
 
@@ -1472,6 +1510,7 @@ function consoleHtml() {
         .filter((output) => output.deviceId !== data.device.id)
         .concat(data.outputs || []);
       state.discoveredBoards = state.discoveredBoards.filter((board) => board.mqttHostname !== mqttHostname);
+      await loadSites(true);
       renderDiscoveredBoards();
       renderOutputs();
 
@@ -1518,6 +1557,48 @@ function consoleHtml() {
       }
 
       setStatus(siteStatus, "Created site " + data.name + ".", "ok");
+    }
+
+    async function saveSite(id) {
+      const nameInput = document.querySelector('[data-site-field="name"][data-site-id="' + id + '"]');
+      const response = await fetch("/v1/sites/" + id, {
+        method: "PATCH",
+        headers: authHeaders(true),
+        body: JSON.stringify({
+          name: nameInput instanceof HTMLInputElement ? nameInput.value.trim() : ""
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to save site");
+      }
+
+      state.sites = state.sites.map((site) => site.id === data.id ? data : site);
+      state.devices = state.devices.map((device) => device.siteId === data.id ? { ...device, siteName: data.name } : device);
+      refreshSiteSelectors();
+      renderOutputs();
+      setStatus(siteStatus, "Saved site " + data.name + ".", "ok");
+    }
+
+    async function deleteSite(id, name) {
+      const confirmed = window.confirm('Delete site "' + name + '"? This only works if the site has no boards assigned.');
+      if (!confirmed) {
+        return;
+      }
+
+      const response = await fetch("/v1/sites/" + id, {
+        method: "DELETE",
+        headers: authHeaders(true, false)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to delete site");
+      }
+
+      state.sites = state.sites.filter((site) => site.id !== id);
+      refreshSiteSelectors();
+      renderOutputs();
+      setStatus(siteStatus, "Deleted site " + (data.deleted?.name || name) + ".", "ok");
     }
 
     function maybeRotateEntityIdForProfileChange(id) {
@@ -1762,6 +1843,35 @@ function consoleHtml() {
 
     deviceSections.addEventListener("click", handleBoardActionClick);
     discoveryList.addEventListener("click", handleBoardActionClick);
+    if (siteList instanceof HTMLElement) {
+      siteList.addEventListener("click", async (event) => {
+        const rawTarget = event.target;
+        if (!(rawTarget instanceof HTMLElement)) {
+          return;
+        }
+
+        const target = rawTarget.closest("button");
+        if (!(target instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        if (target.classList.contains("save-site-btn")) {
+          try {
+            await saveSite(target.dataset.siteId);
+          } catch (error) {
+            setStatus(siteStatus, error.message, "error");
+          }
+        }
+
+        if (target.classList.contains("delete-site-btn")) {
+          try {
+            await deleteSite(target.dataset.siteId, target.dataset.siteName || "this site");
+          } catch (error) {
+            setStatus(siteStatus, error.message, "error");
+          }
+        }
+      });
+    }
 
     if (state.token) {
       setStatus(authStatus, "Admin JWT restored from local storage. Click Load Outputs when ready.", "ok");
