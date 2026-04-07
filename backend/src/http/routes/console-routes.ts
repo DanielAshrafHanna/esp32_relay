@@ -526,6 +526,24 @@ function consoleHtml() {
       return defaultCompatDomain(profileType) + "." + output.mqttHostname + ".relay" + output.channel;
     }
 
+    function isDefaultStyleEntityId(output, entityId) {
+      if (!output || !entityId) {
+        return entityId === "";
+      }
+
+      const normalized = entityId.trim();
+      if (!normalized) {
+        return true;
+      }
+
+      const profileTypes = ["generic_relay", "light", "gate", "cover"];
+      if (normalized === output.compatEntityId) {
+        return true;
+      }
+
+      return profileTypes.some((profileType) => normalized === defaultCompatEntityId(output, profileType));
+    }
+
     function formatTelemetryUptime(seconds) {
       if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
         return "Uptime: --";
@@ -918,10 +936,9 @@ function consoleHtml() {
         return payload;
       }
 
-      const oldDefaultEntityId = defaultCompatEntityId(output, output.profileType);
       const shouldAutoRotateEntity =
         profileType !== output.profileType &&
-        (compatEntityId === output.compatEntityId || compatEntityId === oldDefaultEntityId || compatEntityId === "");
+        isDefaultStyleEntityId(output, compatEntityId);
 
       if (!shouldAutoRotateEntity) {
         payload.compat_entity_id = compatEntityId;
@@ -1080,11 +1097,7 @@ function consoleHtml() {
       }
 
       const currentValue = entityInput.value.trim();
-      const oldDefaultEntityId = defaultCompatEntityId(output, output.profileType);
-      const shouldRotate =
-        currentValue === "" ||
-        currentValue === output.compatEntityId ||
-        currentValue === oldDefaultEntityId;
+      const shouldRotate = isDefaultStyleEntityId(output, currentValue);
 
       if (!shouldRotate) {
         return;
