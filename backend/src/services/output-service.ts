@@ -106,16 +106,27 @@ export class OutputService {
   async listDevices(principal: AuthPrincipal): Promise<DeviceRecord[]> {
     const result = await this.pool.query(
       `
-        select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+        select
+          devices.id,
+          devices.customer_id,
+          devices.site_id,
+          devices.device_key,
+          devices.mqtt_hostname,
+          devices.transport_version,
+          devices.firmware_version,
           c.name as customer_name,
           s.name as site_name,
-          coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
-          active, desired_enabled, availability, last_seen_at, metadata
+          coalesce(nullif(devices.metadata->>'display_name', ''), devices.mqtt_hostname, devices.device_key) as display_name,
+          devices.active,
+          devices.desired_enabled,
+          devices.availability,
+          devices.last_seen_at,
+          devices.metadata
         from devices
         join customers c on c.id = devices.customer_id
         left join sites s on s.id = devices.site_id
-        where customer_id = any($1::uuid[])
-        order by device_key
+        where devices.customer_id = any($1::uuid[])
+        order by devices.device_key
       `,
       [principal.customerIds],
     );
@@ -126,15 +137,26 @@ export class OutputService {
   async getDevice(principal: AuthPrincipal, deviceId: string): Promise<DeviceRecord> {
     const result = await this.pool.query(
       `
-        select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+        select
+          devices.id,
+          devices.customer_id,
+          devices.site_id,
+          devices.device_key,
+          devices.mqtt_hostname,
+          devices.transport_version,
+          devices.firmware_version,
           c.name as customer_name,
           s.name as site_name,
-          coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
-          active, desired_enabled, availability, last_seen_at, metadata
+          coalesce(nullif(devices.metadata->>'display_name', ''), devices.mqtt_hostname, devices.device_key) as display_name,
+          devices.active,
+          devices.desired_enabled,
+          devices.availability,
+          devices.last_seen_at,
+          devices.metadata
         from devices
         join customers c on c.id = devices.customer_id
         left join sites s on s.id = devices.site_id
-        where id = $1
+        where devices.id = $1
       `,
       [deviceId],
     );
