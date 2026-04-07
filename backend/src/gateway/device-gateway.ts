@@ -731,6 +731,11 @@ export class DeviceGateway {
 
   private async completeLegacyStep(client: PoolClient, row: GatewayCommandRow, step: TransportStep) {
     const nextStepIndex = row.current_step + 1;
+    const shouldWaitForStateBeforeNextStep =
+      nextStepIndex < row.steps.length &&
+      step.expectState !== undefined &&
+      step.delayAfterMs !== undefined &&
+      step.delayAfterMs > 0;
 
     await client.query(
       `
@@ -741,6 +746,38 @@ export class DeviceGateway {
       `,
       [row.output_id, step.expectState, JSON.stringify({ topic: step.topic, payload: step.payload, optimistic: true })],
     );
+
+    if (shouldWaitForStateBeforeNextStep) {
+      await client.query(
+        `
+          update commands
+          set
+            status = 'waiting_state',
+            expected_step_state = $2,
+            step_timeout_at = now() + ($3 || ' milliseconds')::interval,
+            started_at = coalesce(started_at, now()),
+            result_payload = jsonb_set(
+              jsonb_set(
+                jsonb_set(
+                  coalesce(result_payload, '{}'::jsonb),
+                  '{last_confirmed_state}',
+                  to_jsonb($4::text),
+                  true
+                ),
+                '{trace,gateway_started_at}',
+                to_jsonb(coalesce(started_at, now())::text),
+                true
+              ),
+              '{trace,last_publish_ack_at}',
+              to_jsonb(now()::text),
+              true
+            )
+          where id = $1
+        `,
+        [row.id, step.expectState, this.env.commandStepTimeoutMs, step.expectState],
+      );
+      return;
+    }
 
     if (nextStepIndex >= row.steps.length) {
       await client.query(
