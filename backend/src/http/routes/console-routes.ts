@@ -804,7 +804,10 @@ function consoleHtml() {
     }
 
     async function loadDevices(silent = false) {
-      const response = await fetch("/v1/devices", { headers: authHeaders(true) });
+      const response = await fetch("/v1/devices", {
+        headers: authHeaders(true),
+        cache: "no-store"
+      });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.message || "Failed to load devices");
@@ -821,7 +824,10 @@ function consoleHtml() {
     }
 
     async function loadDiscoveredBoards(silent = false) {
-      const response = await fetch("/v1/discovery/boards", { headers: authHeaders(true) });
+      const response = await fetch("/v1/discovery/boards", {
+        headers: authHeaders(true),
+        cache: "no-store"
+      });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.message || "Failed to load discovered boards");
@@ -837,7 +843,10 @@ function consoleHtml() {
       if (!state.devices.length) {
         await loadDevices(true);
       }
-      const response = await fetch("/v1/outputs", { headers: authHeaders(true) });
+      const response = await fetch("/v1/outputs", {
+        headers: authHeaders(true),
+        cache: "no-store"
+      });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.message || "Failed to load outputs");
@@ -931,7 +940,8 @@ function consoleHtml() {
       if (!response.ok) {
         throw new Error(data.message || "Failed to save output");
       }
-      await loadOutputs();
+      state.outputs = state.outputs.map((output) => output.id === id ? data : output);
+      renderOutputs();
       setStatus(outputsStatus, "Saved output " + data.channel + ".", "ok");
     }
 
