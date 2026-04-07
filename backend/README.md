@@ -47,13 +47,16 @@ http://localhost:8080
 The console lets you:
 
 - log in as admin
+- auto-load sites, boards, and outputs when a saved admin session exists
 - inspect all outputs
 - change a relay between `gate`, `light`, `cover`, and `generic relay`
 - edit webhook entity IDs
-- trigger compatibility webhooks from the browser
+- trigger compatibility webhooks from the browser when needed
 - copy ready-to-use compatibility webhook `curl` commands per relay row
 - view latest board telemetry such as uptime, RSSI, heap, and MQTT status
 - see command latency tracing in the webhook status panel after triggering a relay
+- group boards by site with collapsible site and board sections
+- create, rename, and delete empty sites from the console
 
 For responsive relay triggering, the recommended gateway setting is:
 
@@ -367,20 +370,41 @@ After that, the same webhook contract works:
 - light: `POST /api/services/light/turn_on`
 - generic relay: `POST /api/services/switch/turn_on`
 
+## Device Key vs MQTT Hostname
+
+These two values are related, but they are not the same thing:
+
+- `mqtt_hostname`
+  - the board's real MQTT identity
+  - used in MQTT topics like `homeassistant/switch/<mqtt_hostname>/relay1/set`
+  - used for per-board MQTT credentials and ACL scoping
+  - used as the default board title fallback
+  - used as the namespace for default entity IDs like `switch.dany.relay1`
+- `device_key`
+  - middleware-side internal label for the board record
+  - used for searching, logs, and identifying the board in the database
+  - does **not** control MQTT topics or broker access
+
+Recommended rule:
+
+- keep `device_key` the same as `mqtt_hostname` unless you have a specific reason not to
+
+That keeps the system easier to understand and troubleshoot.
+
 ## GUI Workflow
 
 For the easiest operator flow:
 
 1. Open `/console`
 2. Log in with the admin credentials
-3. Click `Load Devices`
-4. Click `Load Outputs`
+3. If a saved admin session exists, the console now auto-loads sites, devices, and outputs.
+4. If needed, use `Load Devices` or `Load Outputs` as manual refresh buttons.
 5. Edit any row:
    - `Profile` decides whether a relay behaves like a gate, light, cover, or generic relay
    - `Entity` decides which webhook `entity_id` will target that relay
    - `Pulse` matters for gate or pulse-style behavior
 6. Click `Save` on that row
-7. Use the row action buttons or the `Webhook Tester` section to trigger it
+7. Use the row action buttons, or open `Advanced Tools` if you need the webhook tester or manual board add fallback
 
 ### Load Devices vs Load Outputs
 
@@ -400,16 +424,16 @@ Why it can feel like you need both:
 - an output is one relay channel on that board
 - the UI first learns which boards exist, then fills in the relays that belong to them
 
-The console now renders board sections after `Load Devices`, even before outputs are loaded, so the separation is easier to see.
+The console now renders board sections after `Load Devices`, even before outputs are loaded, so the separation is easier to see. The page also auto-loads both when a saved admin session is restored, so most operators should not need to press both buttons every time.
 
 ## Board Onboarding Flow
 
 The console now supports two onboarding paths:
 
 - preferred: let the ESP connect first and claim it from `Discovered Boards`
-- fallback: use `Board Onboarding` to create a board manually
+- fallback: open `Advanced Tools` and use `Manual Board Add`
 
-The manual `Board Onboarding` flow will:
+The manual board-add flow will:
 
 - create the device record
 - create the default 8 outputs
@@ -419,7 +443,7 @@ The manual `Board Onboarding` flow will:
 Operator flow:
 
 1. Log in as admin
-2. In `Board Onboarding`, enter:
+2. In `Advanced Tools -> Manual Board Add`, enter:
    - board title
    - MQTT hostname
    - optional device key
@@ -428,6 +452,11 @@ Operator flow:
 4. Copy the returned `MQTT_BOOTSTRAP_USERS` line into the secure broker service
 5. Redeploy the secure broker
 6. Put the same MQTT username/password into the ESP `/solaceadmin`
+
+Best practice:
+
+- use the exact ESP `mqtt_hostname`
+- keep `device_key` the same unless you deliberately want a separate internal label
 
 Native API example:
 
@@ -471,6 +500,19 @@ What this means operationally:
 - the middleware creates the device, creates its relay outputs, issues MQTT credentials, and returns the broker bootstrap line
 
 This is the preferred workflow for new boards because it feels closer to automatic discovery while still keeping the final board claim explicit and safe.
+
+Discovery behavior notes:
+
+- discovery records are persisted in the database
+- deleting a claimed board does **not** erase the remembered discovery hostname
+- if the board is still powered and connected, it can rediscover itself without a physical reboot because telemetry, availability, or state traffic will be seen again
+- if the board is unplugged, no new live traffic is sent, but retained MQTT messages may still make the hostname reappear later
+
+The console now treats `Discovered Boards` more like a live inbox:
+
+- stale discovered boards are hidden by default
+- you can enable `Show stale discovered boards`
+- you can `Dismiss` an unclaimed discovered board to clear it from the list
 
 Default entity IDs for newly claimed boards now use the MQTT hostname namespace:
 

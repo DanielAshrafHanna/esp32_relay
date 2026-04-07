@@ -267,14 +267,15 @@ The current test deployment uses:
 
 Then:
 
-1. click `Load Devices`
-2. click `Load Outputs`
+1. let the console auto-load if a saved session already exists
+2. if needed, click `Load Devices` or `Load Outputs` as manual refresh actions
 3. trigger a row action
 
 The current console also shows:
 
 - board telemetry badges for uptime, RSSI, heap, and MQTT status
 - copyable per-relay webhook `curl` commands that track the current entity and profile
+- site-grouped board sections with collapsible sites and boards
 
 Or use a webhook:
 
@@ -385,12 +386,18 @@ Preferred flow:
 
 1. connect the ESP to the broker
 2. open the middleware console
-3. click `Load Devices`
+3. let the console auto-load, or click `Load Devices` if needed
 4. look in `Discovered Boards`
 5. click `Claim Board`
 6. append the returned `mqttBootstrapEntry` to `MQTT_BOOTSTRAP_USERS`
 7. redeploy the secure broker
 8. update the ESP to use the returned username/password if needed
+
+Important naming note:
+
+- `mqtt_hostname` is the real board identity for MQTT topics, credentials, and ACLs
+- `device_key` is a middleware-side internal identifier
+- in most deployments, keeping them the same is the simplest option
 
 You can also use the manual fallback flow and call:
 
@@ -422,6 +429,12 @@ The discovery-backed claim route is:
 - `POST /v1/discovery/boards/:mqtt_hostname/claim`
 
 Use that when the board has already appeared in `Discovered Boards`.
+
+The discovery list is now treated as a live inbox:
+
+- stale discovered boards are hidden by default
+- you can toggle `Show stale discovered boards`
+- you can dismiss an unclaimed stale discovery from the console
 
 ## Removing A Board
 
