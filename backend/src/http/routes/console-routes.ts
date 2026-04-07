@@ -153,6 +153,49 @@ function consoleHtml() {
       display: grid;
       gap: 18px;
     }
+    .site-stack {
+      display: grid;
+      gap: 16px;
+    }
+    .site-section {
+      border: 1px solid rgba(24, 32, 39, 0.08);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.56);
+      padding: 16px;
+    }
+    .site-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .site-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .site-summary span {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 700;
+    }
+    .filter-strip {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .compact-note {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
     .device-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
@@ -201,7 +244,7 @@ function consoleHtml() {
     }
     .muted { color: var(--muted); }
     @media (max-width: 980px) {
-      .hero, .grid-4, .grid-3, .grid-2 { grid-template-columns: 1fr; }
+      .hero, .grid-4, .grid-3, .grid-2, .filter-strip { grid-template-columns: 1fr; }
       table, thead, tbody, tr, th, td { display: block; width: 100%; }
       thead { display: none; }
       td { padding: 10px 0; }
@@ -336,8 +379,30 @@ function consoleHtml() {
     <section class="card">
       <div class="toolbar">
         <h2>Relay Boards</h2>
-        <div class="muted">Load Devices shows board sections first. Load Outputs fills in each board's relay rows, profile settings, and last known states.</div>
+        <div class="muted">Grouped by site, with lightweight filters so many clubs stay easy to scan.</div>
       </div>
+      <div class="filter-strip">
+        <div>
+          <label for="board-search">Search Boards / Entities</label>
+          <input id="board-search" placeholder="Search by board title, MQTT hostname, entity, or device key">
+        </div>
+        <div>
+          <label for="site-filter">Site</label>
+          <select id="site-filter">
+            <option value="">All sites</option>
+          </select>
+        </div>
+        <div>
+          <label for="availability-filter">Availability</label>
+          <select id="availability-filter">
+            <option value="">All boards</option>
+            <option value="online">Online only</option>
+            <option value="offline">Offline only</option>
+            <option value="unknown">Unknown only</option>
+          </select>
+        </div>
+      </div>
+      <div id="board-summary" class="compact-note">Load devices to organize boards by site.</div>
       <div id="device-sections" class="device-stack"></div>
       <div id="outputs-status" class="status">Load outputs to begin.</div>
     </section>
@@ -360,6 +425,10 @@ function consoleHtml() {
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
     const serviceTokenInput = document.getElementById("service-token");
+    const boardSearchInput = document.getElementById("board-search");
+    const siteFilterInput = document.getElementById("site-filter");
+    const availabilityFilterInput = document.getElementById("availability-filter");
+    const boardSummary = document.getElementById("board-summary");
 
     if (serviceTokenInput instanceof HTMLInputElement) {
       serviceTokenInput.value = state.serviceToken;
@@ -368,6 +437,56 @@ function consoleHtml() {
     function setStatus(node, message, kind) {
       node.textContent = message;
       node.className = "status" + (kind ? " " + kind : "");
+    }
+
+    function normalizedSiteName(device) {
+      return (device.siteName && device.siteName.trim()) || "Unassigned Site";
+    }
+
+    function boardMatchesFilters(device, outputs) {
+      const search = boardSearchInput instanceof HTMLInputElement ? boardSearchInput.value.trim().toLowerCase() : "";
+      const siteFilter = siteFilterInput instanceof HTMLSelectElement ? siteFilterInput.value : "";
+      const availabilityFilter = availabilityFilterInput instanceof HTMLSelectElement ? availabilityFilterInput.value : "";
+      const siteName = normalizedSiteName(device);
+
+      if (siteFilter && siteName !== siteFilter) {
+        return false;
+      }
+
+      if (availabilityFilter && device.availability !== availabilityFilter) {
+        return false;
+      }
+
+      if (!search) {
+        return true;
+      }
+
+      const haystack = [
+        device.displayName,
+        device.deviceKey,
+        device.mqttHostname,
+        device.customerName || "",
+        siteName,
+        ...outputs.flatMap((output) => [output.displayName, output.compatEntityId || "", output.profileType])
+      ].join(" ").toLowerCase();
+
+      return haystack.includes(search);
+    }
+
+    function refreshSiteFilterOptions() {
+      if (!(siteFilterInput instanceof HTMLSelectElement)) {
+        return;
+      }
+
+      const currentValue = siteFilterInput.value;
+      const siteNames = Array.from(new Set(state.devices.map((device) => normalizedSiteName(device)))).sort((a, b) => a.localeCompare(b));
+      siteFilterInput.innerHTML = '<option value="">All sites</option>' + siteNames.map((siteName) =>
+        '<option value="' + siteName.replace(/"/g, "&quot;") + '">' + siteName + '</option>'
+      ).join("");
+
+      if (siteNames.includes(currentValue)) {
+        siteFilterInput.value = currentValue;
+      }
     }
 
     function parseIsoTime(value) {
@@ -678,6 +797,9 @@ function consoleHtml() {
       deviceSections.innerHTML = "";
       if (!state.outputs.length && !state.devices.length) {
         deviceSections.innerHTML = '<div class="muted">No outputs loaded yet.</div>';
+        if (boardSummary) {
+          boardSummary.textContent = "Load devices to organize boards by site.";
+        }
         return;
       }
 
@@ -693,6 +815,8 @@ function consoleHtml() {
         ? state.devices
         : Array.from(outputsByDevice.entries()).map(([deviceId, outputs]) => ({
             id: deviceId,
+            customerName: null,
+            siteName: "Unassigned Site",
             displayName: outputs[0].deviceDisplayName,
             deviceKey: outputs[0].deviceKey,
             mqttHostname: outputs[0].mqttHostname,
@@ -700,76 +824,131 @@ function consoleHtml() {
             desiredEnabled: outputs[0].deviceDesiredEnabled
           }));
 
-      for (const device of devices) {
-        const outputs = (outputsByDevice.get(device.id) || []).sort((a, b) => a.channel - b.channel);
-        const section = document.createElement("section");
-        section.className = "device-section";
+      refreshSiteFilterOptions();
 
-        const rows = outputs.map((output) => {
-          return \`
-            <tr>
-              <td><strong>\${output.channel}</strong><div class="mono muted">\${output.id.slice(0, 8)}</div></td>
-              <td><span class="\${output.lastKnownState === "ON" ? "state-on" : "state-off"}">\${output.lastKnownState}</span></td>
-              <td><input data-field="display_name" data-id="\${output.id}" value="\${output.displayName}"></td>
-              <td>
-                <select data-field="profile_type" data-id="\${output.id}">
-                  <option value="generic_relay" \${output.profileType === "generic_relay" ? "selected" : ""}>generic relay</option>
-                  <option value="light" \${output.profileType === "light" ? "selected" : ""}>light</option>
-                  <option value="gate" \${output.profileType === "gate" ? "selected" : ""}>gate</option>
-                  <option value="cover" \${output.profileType === "cover" ? "selected" : ""}>cover</option>
-                </select>
-              </td>
-              <td><input class="mono" data-field="compat_entity_id" data-id="\${output.id}" value="\${output.compatEntityId || ""}"></td>
-              <td><input data-field="pulse_ms" data-id="\${output.id}" type="number" value="\${output.pulseMs || ""}" placeholder="2000"></td>
-              <td data-actions-cell="\${output.id}">
-                \${renderActionControls(output.id, output.profileType)}
-              </td>
-            </tr>
+      const filteredDevices = devices.filter((device) => {
+        const outputs = (outputsByDevice.get(device.id) || []).sort((a, b) => a.channel - b.channel);
+        return boardMatchesFilters(device, outputs);
+      });
+
+      if (boardSummary) {
+        const siteCount = new Set(filteredDevices.map((device) => normalizedSiteName(device))).size;
+        boardSummary.textContent = "Showing " + filteredDevices.length + " board(s) across " + siteCount + " site(s).";
+      }
+
+      if (!filteredDevices.length) {
+        deviceSections.innerHTML = '<div class="muted">No boards match the current filters.</div>';
+        return;
+      }
+
+      const devicesBySite = new Map();
+      for (const device of filteredDevices) {
+        const siteName = normalizedSiteName(device);
+        if (!devicesBySite.has(siteName)) {
+          devicesBySite.set(siteName, []);
+        }
+        devicesBySite.get(siteName).push(device);
+      }
+
+      deviceSections.className = "site-stack";
+
+      for (const [siteName, siteDevices] of Array.from(devicesBySite.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+        const siteSection = document.createElement("section");
+        siteSection.className = "site-section";
+
+        const onlineCount = siteDevices.filter((device) => device.availability === "online").length;
+        const offlineCount = siteDevices.filter((device) => device.availability === "offline").length;
+        const siteCustomerNames = Array.from(new Set(siteDevices.map((device) => device.customerName).filter(Boolean)));
+
+        const siteBoards = siteDevices.map((device) => {
+          const outputs = (outputsByDevice.get(device.id) || []).sort((a, b) => a.channel - b.channel);
+          const section = document.createElement("section");
+          section.className = "device-section";
+
+          const rows = outputs.map((output) => {
+            return \`
+              <tr>
+                <td><strong>\${output.channel}</strong><div class="mono muted">\${output.id.slice(0, 8)}</div></td>
+                <td><span class="\${output.lastKnownState === "ON" ? "state-on" : "state-off"}">\${output.lastKnownState}</span></td>
+                <td><input data-field="display_name" data-id="\${output.id}" value="\${output.displayName}"></td>
+                <td>
+                  <select data-field="profile_type" data-id="\${output.id}">
+                    <option value="generic_relay" \${output.profileType === "generic_relay" ? "selected" : ""}>generic relay</option>
+                    <option value="light" \${output.profileType === "light" ? "selected" : ""}>light</option>
+                    <option value="gate" \${output.profileType === "gate" ? "selected" : ""}>gate</option>
+                    <option value="cover" \${output.profileType === "cover" ? "selected" : ""}>cover</option>
+                  </select>
+                </td>
+                <td><input class="mono" data-field="compat_entity_id" data-id="\${output.id}" value="\${output.compatEntityId || ""}"></td>
+                <td><input data-field="pulse_ms" data-id="\${output.id}" type="number" value="\${output.pulseMs || ""}" placeholder="2000"></td>
+                <td data-actions-cell="\${output.id}">
+                  \${renderActionControls(output.id, output.profileType)}
+                </td>
+              </tr>
+            \`;
+          }).join("");
+
+          section.innerHTML = \`
+            <div class="device-head">
+              <div>
+                <h3>\${device.displayName || device.deviceKey}</h3>
+                <div class="device-meta">
+                  <span class="mono">MQTT: \${device.mqttHostname}</span>
+                  <span>Availability: \${device.availability}</span>
+                  <span>Key: \${device.deviceKey}</span>
+                  \${telemetryBadges(device).map((badge) => '<span>' + badge + '</span>').join("")}
+                </div>
+              </div>
+              <div style="min-width:320px;">
+                <label>Board Title</label>
+                <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
+                <div class="actions" style="margin-top:10px; align-items:center;">
+                  <label class="toggle-line">
+                    <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
+                    Enable this relay board for webhook/API commands
+                  </label>
+                  <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
+                  <button class="warn delete-device-btn" data-device-id="\${device.id}" data-device-name="\${device.displayName || device.deviceKey}">Delete Board</button>
+                </div>
+              </div>
+            </div>
+            <div style="overflow:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Channel</th>
+                    <th>State</th>
+                    <th>Display</th>
+                    <th>Profile</th>
+                    <th>Entity</th>
+                    <th>Pulse</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>\${rows || '<tr><td colspan="7" class="muted">No outputs for this device.</td></tr>'}</tbody>
+              </table>
+            </div>
           \`;
+
+          return section.outerHTML;
         }).join("");
 
-        section.innerHTML = \`
-          <div class="device-head">
+        siteSection.innerHTML = \`
+          <div class="site-head">
             <div>
-              <h3>\${device.displayName || device.deviceKey}</h3>
-              <div class="device-meta">
-                <span class="mono">MQTT: \${device.mqttHostname}</span>
-                <span>Availability: \${device.availability}</span>
-                <span>Key: \${device.deviceKey}</span>
-                \${telemetryBadges(device).map((badge) => '<span>' + badge + '</span>').join("")}
-              </div>
+              <h3>\${siteName}</h3>
+              <div class="muted">\${siteCustomerNames.join(" · ") || "No customer label"}</div>
             </div>
-            <div style="min-width:320px;">
-              <label>Board Title</label>
-              <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
-              <div class="actions" style="margin-top:10px; align-items:center;">
-                <label class="toggle-line">
-                  <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
-                  Enable this relay board for webhook/API commands
-                </label>
-                <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
-                <button class="warn delete-device-btn" data-device-id="\${device.id}" data-device-name="\${device.displayName || device.deviceKey}">Delete Board</button>
-              </div>
+            <div class="site-summary">
+              <span>\${siteDevices.length} board(s)</span>
+              <span>\${onlineCount} online</span>
+              <span>\${offlineCount} offline</span>
             </div>
           </div>
-          <div style="overflow:auto;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Channel</th>
-                  <th>State</th>
-                  <th>Display</th>
-                  <th>Profile</th>
-                  <th>Entity</th>
-                  <th>Pulse</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>\${rows || '<tr><td colspan="7" class="muted">No outputs for this device.</td></tr>'}</tbody>
-            </table>
-          </div>
+          <div class="device-stack">\${siteBoards}</div>
         \`;
-        deviceSections.appendChild(section);
+
+        deviceSections.appendChild(siteSection);
       }
     }
 
@@ -1176,6 +1355,18 @@ function consoleHtml() {
       serviceTokenInput.addEventListener("input", () => {
         state.serviceToken = serviceTokenInput.value.trim();
       });
+    }
+
+    if (boardSearchInput instanceof HTMLInputElement) {
+      boardSearchInput.addEventListener("input", () => renderOutputs());
+    }
+
+    if (siteFilterInput instanceof HTMLSelectElement) {
+      siteFilterInput.addEventListener("change", () => renderOutputs());
+    }
+
+    if (availabilityFilterInput instanceof HTMLSelectElement) {
+      availabilityFilterInput.addEventListener("change", () => renderOutputs());
     }
 
     deviceSections.addEventListener("change", (event) => {

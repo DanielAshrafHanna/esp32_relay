@@ -125,7 +125,9 @@ export function mapDeviceRow(row: Record<string, unknown>): DeviceRecord {
   return {
     id: String(row.id),
     customerId: String(row.customer_id),
+    customerName: row.customer_name ? String(row.customer_name) : null,
     siteId: row.site_id ? String(row.site_id) : null,
+    siteName: row.site_name ? String(row.site_name) : null,
     deviceKey: String(row.device_key),
     displayName: String(row.display_name ?? row.device_key),
     mqttHostname: String(row.mqtt_hostname),

@@ -107,9 +107,13 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+          c.name as customer_name,
+          s.name as site_name,
           coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
           active, desired_enabled, availability, last_seen_at, metadata
         from devices
+        join customers c on c.id = devices.customer_id
+        left join sites s on s.id = devices.site_id
         where customer_id = any($1::uuid[])
         order by device_key
       `,
@@ -123,9 +127,13 @@ export class OutputService {
     const result = await this.pool.query(
       `
         select id, customer_id, site_id, device_key, mqtt_hostname, transport_version, firmware_version,
+          c.name as customer_name,
+          s.name as site_name,
           coalesce(nullif(metadata->>'display_name', ''), mqtt_hostname, device_key) as display_name,
           active, desired_enabled, availability, last_seen_at, metadata
         from devices
+        join customers c on c.id = devices.customer_id
+        left join sites s on s.id = devices.site_id
         where id = $1
       `,
       [deviceId],

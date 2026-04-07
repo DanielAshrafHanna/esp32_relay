@@ -69,7 +69,9 @@ export interface CustomerRecord {
 export interface DeviceRecord {
   id: string;
   customerId: string;
+  customerName: string | null;
   siteId: string | null;
+  siteName: string | null;
   deviceKey: string;
   displayName: string;
   mqttHostname: string;
