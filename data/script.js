@@ -16,7 +16,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2000);
     
     // Set up reset button
+    document.getElementById('wifi-setup-btn').addEventListener('click', launchWiFiSetupPortal);
     document.getElementById('reset-btn').addEventListener('click', resetConfig);
+    document.getElementById('factory-reset-btn').addEventListener('click', factoryReset);
 });
 
 // Load relay states
@@ -170,7 +172,7 @@ async function loadMQTTInfo() {
 
 // Reset configuration
 async function resetConfig() {
-    if (!confirm('Are you sure you want to reset WiFi and MQTT configuration? The device will restart.')) {
+    if (!confirm('Are you sure you want to reset WiFi settings? The device will restart and return to setup mode.')) {
         return;
     }
     
@@ -180,7 +182,7 @@ async function resetConfig() {
         });
         
         if (response.ok) {
-            alert('Configuration reset. The device will restart and enter configuration mode. Connect to the WiFi network "ESP32-Relay-Setup" to reconfigure.');
+            alert('Configuration reset. The device will restart and enter configuration mode. Connect to the WiFi network named "Aywana-Hub-Setup-XXXXXX" using the last 6 hex digits of the board MAC address.');
             
             // Stop updates
             clearInterval(updateInterval);
@@ -188,8 +190,8 @@ async function resetConfig() {
             // Show loading message
             document.body.innerHTML = `
                 <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
-                    <h1>Device Restarting...</h1>
-                    <p>Please connect to "ESP32-Relay-Setup" WiFi to reconfigure.</p>
+                    <h1>Aywana Hub Restarting...</h1>
+                    <p>Please connect to the "Aywana-Hub-Setup-XXXXXX" WiFi using the last 6 hex digits of the board MAC address.</p>
                 </div>
             `;
         }
@@ -199,14 +201,71 @@ async function resetConfig() {
     }
 }
 
+async function launchWiFiSetupPortal() {
+    if (!confirm('Reboot into the WiFi setup portal now? The device will restart and open WiFiManager at 192.168.4.1.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/wifi/setup-portal', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            alert('Aywana Hub is rebooting into the WiFi setup portal. Reconnect to the setup WiFi if needed, then open 192.168.4.1.');
+
+            clearInterval(updateInterval);
+
+            document.body.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
+                    <h1>Opening WiFi Setup Portal...</h1>
+                    <p>Aywana Hub is restarting into WiFiManager.</p>
+                    <p>After reboot, open <strong>192.168.4.1</strong>.</p>
+                </div>
+            `;
+        } else {
+            alert('Failed to launch the WiFi setup portal.');
+        }
+    } catch (error) {
+        console.error('Error launching WiFi setup portal:', error);
+        alert('Failed to launch the WiFi setup portal. Please try again.');
+    }
+}
+
+async function factoryReset() {
+    const confirmation = prompt('Type RESET to erase WiFi, MQTT, relay states, RF codes, and saved board settings.');
+    if (confirmation !== 'RESET') {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/factory-reset', {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            alert('Factory reset complete. The device will restart and return to the setup access point "Aywana-Hub-Setup-XXXXXX" using the last 6 hex digits of the board MAC address.');
+
+            clearInterval(updateInterval);
+
+            document.body.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column;">
+                    <h1>Aywana Hub Factory Reset In Progress...</h1>
+                    <p>Reconnect to the "Aywana-Hub-Setup-XXXXXX" access point using the last 6 hex digits of the board MAC address.</p>
+                </div>
+            `;
+        } else {
+            alert('Failed to factory reset the device.');
+        }
+    } catch (error) {
+        console.error('Error factory resetting config:', error);
+        alert('Failed to factory reset the device. Please try again.');
+    }
+}
+
 // Cleanup on page unload
 window.addEventListener('beforeunload', () => {
     if (updateInterval) {
         clearInterval(updateInterval);
     }
 });
-
-
-
-
-

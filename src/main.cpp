@@ -22,12 +22,13 @@ Preferences preferences;
 RCSwitch rfReceiver = RCSwitch();
 
 // MQTT settings (hardcoded defaults)
-char mqtt_server[MQTT_SERVER_MAX_LEN] = "192.168.68.100";
-char mqtt_port[6] = "1883";
+char mqtt_server[MQTT_SERVER_MAX_LEN] = "maglev.proxy.rlwy.net";
+char mqtt_port[6] = "44016";
 char mqtt_user[MQTT_USER_MAX_LEN] = "solacemqtt";
 char mqtt_password[MQTT_PASSWORD_MAX_LEN] = "solacepass";
 char mqtt_hostname[MQTT_HOSTNAME_MAX_LEN] = "esp32-relay";  // Configurable MQTT hostname for topics
 char mdns_hostname[MQTT_HOSTNAME_MAX_LEN] = MDNS_HOSTNAME_DEFAULT;
+char setup_ap_name[32] = AP_NAME_PREFIX;
 
 // Admin settings
 const char* ADMIN_PASSWORD = "Solacepass@123";
@@ -87,6 +88,7 @@ void checkWiFiConnection();
 void startAPMode();
 void setupWiFi();
 void setupWiFiEvents();
+bool consumeLaunchSetupPortalFlag();
 void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info);
 void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info);
 void setupMQTT();
@@ -142,6 +144,7 @@ bool collectRequestBody(AsyncWebServerRequest* request, uint8_t* data, size_t le
 bool parseJsonRequestBody(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total, JsonDocument& doc, size_t maxSize = MAX_JSON_BODY_SIZE);
 void updateMdnsHostname();
 const char* getMdnsHostname();
+void updateSetupApName();
 
 void sanitizeHostname(const char* source, char* dest, size_t destSize) {
     if (dest == nullptr || destSize == 0) {
@@ -189,9 +192,17 @@ const char* getMdnsHostname() {
     return mdns_hostname;
 }
 
+void updateSetupApName() {
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(setup_ap_name, sizeof(setup_ap_name), "%s%02X%02X%02X",
+             AP_NAME_PREFIX, mac[3], mac[4], mac[5]);
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.println("\n\n=== ESP32 Relay Controller ===");
+    updateSetupApName();
     
     // Initialize relay control
     relayControl.init();
@@ -407,14 +418,14 @@ void startAPMode() {
     
     // Start AP mode while keeping STA active
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(AP_NAME, AP_PASSWORD);
+    WiFi.softAP(setup_ap_name, AP_PASSWORD);
     
     apModeActive = true;
     lastReconnectAttempt = millis();
     
     IPAddress apIP = WiFi.softAPIP();
     Serial.println("[WiFi] AP Mode Started");
-    Serial.printf("[WiFi] AP SSID: %s\n", AP_NAME);
+    Serial.printf("[WiFi] AP SSID: %s\n", setup_ap_name);
     Serial.printf("[WiFi] AP Password: %s\n", AP_PASSWORD);
     Serial.printf("[WiFi] AP IP: %s\n", apIP.toString().c_str());
     Serial.println("[WiFi] Connect to configure WiFi or wait for automatic reconnection attempts");
@@ -429,16 +440,24 @@ void startAPMode() {
 
 void setupWiFi() {
     WiFiManager wifiManager;
+    const bool launchSetupPortal = consumeLaunchSetupPortalFlag();
     
     // Reset the save flag before starting
     shouldSaveConfig = false;
+
+    char wifiManagerHostnameValue[MQTT_HOSTNAME_MAX_LEN] = "";
+    if (strcmp(mqtt_hostname, "esp32-relay") != 0) {
+        strncpy(wifiManagerHostnameValue, mqtt_hostname, sizeof(wifiManagerHostnameValue) - 1);
+        wifiManagerHostnameValue[sizeof(wifiManagerHostnameValue) - 1] = '\0';
+    }
     
     // Create custom parameters for MQTT configuration (including hostname)
     WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, MQTT_SERVER_MAX_LEN);
     WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
     WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, MQTT_USER_MAX_LEN);
     WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, MQTT_PASSWORD_MAX_LEN);
-    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, MQTT_HOSTNAME_MAX_LEN);
+    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname", wifiManagerHostnameValue, MQTT_HOSTNAME_MAX_LEN);
+    WiFiManagerParameter custom_mqtt_hostname_hint("<small>Paste your MQTT username here</small>");
     
     // Add all custom parameters to WiFiManager
     wifiManager.addParameter(&custom_mqtt_server);
@@ -446,6 +465,7 @@ void setupWiFi() {
     wifiManager.addParameter(&custom_mqtt_user);
     wifiManager.addParameter(&custom_mqtt_password);
     wifiManager.addParameter(&custom_mqtt_hostname);
+    wifiManager.addParameter(&custom_mqtt_hostname_hint);
     
     // Register save callback - this is called when user clicks Save in the portal
     wifiManager.setSaveConfigCallback(saveConfigCallback);
@@ -453,8 +473,16 @@ void setupWiFi() {
     // Set timeout
     wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
     
-    // Try to connect to saved WiFi or start captive portal
-    if (!wifiManager.autoConnect(AP_NAME, AP_PASSWORD)) {
+    // Try to connect to saved WiFi or intentionally reopen the setup portal.
+    bool wifiManagerConnected = false;
+    if (launchSetupPortal) {
+        Serial.println("[WiFiManager] Launching setup portal on demand...");
+        wifiManagerConnected = wifiManager.startConfigPortal(setup_ap_name, AP_PASSWORD);
+    } else {
+        wifiManagerConnected = wifiManager.autoConnect(setup_ap_name, AP_PASSWORD);
+    }
+
+    if (!wifiManagerConnected) {
         // WiFiManager failed to connect - enter AP mode instead of rebooting
         // This prevents relay clicks and allows background reconnection attempts
         Serial.println("[WiFi] Failed to connect - entering AP mode (no reboot)");
@@ -515,6 +543,16 @@ void setupWiFi() {
         Serial.printf("  User: %s\n", mqtt_user);
         Serial.printf("  Hostname: %s\n", mqtt_hostname);
     }
+}
+
+bool consumeLaunchSetupPortalFlag() {
+    preferences.begin("relay-states", false);
+    const bool launchSetupPortal = preferences.getBool("launch_portal", false);
+    if (launchSetupPortal) {
+        preferences.putBool("launch_portal", false);
+    }
+    preferences.end();
+    return launchSetupPortal;
 }
 
 void setupMDNS() {
@@ -1105,7 +1143,7 @@ void setupWebServer() {
         doc["rssi"] = WiFi.RSSI();
         
         if (apModeActive) {
-            doc["ap_ssid"] = AP_NAME;
+            doc["ap_ssid"] = setup_ap_name;
             doc["ap_ip"] = WiFi.softAPIP().toString();
             doc["ap_clients"] = WiFi.softAPgetStationNum();
         }
@@ -1146,6 +1184,35 @@ void setupWebServer() {
         delay(1000);
         WiFiManager wifiManager;
         wifiManager.resetSettings();
+        ESP.restart();
+    });
+
+    // API: Reboot directly into WiFiManager setup portal
+    server.on("/api/wifi/setup-portal", HTTP_POST, [](AsyncWebServerRequest *request) {
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"Restarting into WiFi setup portal...\"}");
+        delay(1000);
+
+        preferences.begin("relay-states", false);
+        preferences.putBool("launch_portal", true);
+        preferences.end();
+
+        ESP.restart();
+    });
+
+    // API: Full factory reset
+    server.on("/api/factory-reset", HTTP_POST, [](AsyncWebServerRequest *request) {
+        request->send(200, "application/json", "{\"success\":true,\"message\":\"Factory reset started...\"}");
+        delay(1000);
+
+        WiFiManager wifiManager;
+        wifiManager.resetSettings();
+
+        preferences.begin("relay-states", false);
+        preferences.clear();
+        preferences.end();
+
+        WiFi.disconnect(true, true);
+        delay(250);
         ESP.restart();
     });
     
@@ -1499,7 +1566,7 @@ void restoreRelayStates() {
     String saved_server = preferences.getString("mqtt_server", "");
     if (saved_server.length() > 0) {
         saved_server.toCharArray(mqtt_server, MQTT_SERVER_MAX_LEN);
-        String saved_port = preferences.getString("mqtt_port", "1883");
+        String saved_port = preferences.getString("mqtt_port", "44016");
         saved_port.toCharArray(mqtt_port, 6);
         String saved_user = preferences.getString("mqtt_user", "");
         saved_user.toCharArray(mqtt_user, MQTT_USER_MAX_LEN);

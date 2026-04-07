@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Relay Controller</title>
+    <title>Aywana Hub</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="container">
         <header>
-            <h1>🔌 ESP32 Relay Controller</h1>
+            <h1>🔌 Aywana Hub</h1>
             <div class="status-bar">
                 <div class="status-item">
                     <span class="label">WiFi:</span>
@@ -62,23 +62,29 @@
                     <a href="/rf_manager.html" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">📡 RF Manager</a>
                 </div>
                 <div class="settings-card">
-                    <p>Restart the ESP32 controller</p>
-                    <a href="/restart" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">🔄 Restart ESP32</a>
+                    <p>Restart the Aywana Hub controller</p>
+                    <a href="/restart" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">🔄 Restart Aywana Hub</a>
+                </div>
+                <div class="settings-card">
+                    <p>Reboot into the WiFiManager setup portal at 192.168.4.1</p>
+                    <button id="wifi-setup-btn" class="btn-restart">📶 Launch WiFi Setup Portal</button>
                 </div>
                 <div class="settings-card">
                     <p>Reset WiFi and MQTT settings to reconfigure</p>
                     <button id="reset-btn" class="btn-danger">Reset Configuration</button>
                 </div>
+                <div class="settings-card">
+                    <p>Erase all saved settings, relay state memory, and learned RF codes</p>
+                    <button id="factory-reset-btn" class="btn-danger">Factory Reset</button>
+                </div>
             </section>
         </main>
 
         <footer>
-            <p>ESP32 Relay Controller v1.0 | Home Assistant Compatible</p>
+            <p>Aywana Hub v1.0 | Home Assistant Compatible</p>
         </footer>
     </div>
 
     <script src="script.js"></script>
 </body>
 </html>
-
-

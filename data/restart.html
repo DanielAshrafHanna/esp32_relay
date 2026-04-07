@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Restart ESP32</title>
+    <title>Restart Aywana Hub</title>
     <style>
         * {
             margin: 0;
@@ -177,13 +177,13 @@
 <body>
     <div class="restart-container">
         <div class="icon">🔄</div>
-        <h1>Restart ESP32</h1>
-        <p class="subtitle">ESP32 Relay Controller</p>
+        <h1>Restart Aywana Hub</h1>
+        <p class="subtitle">Aywana Hub</p>
 
         <div class="warning-box">
             <p><strong>⚠️ Warning:</strong></p>
             <ul>
-                <li>ESP32 will restart immediately</li>
+                <li>Aywana Hub will restart immediately</li>
                 <li>All relay states will be restored</li>
                 <li>WiFi reconnection will take ~10 seconds</li>
                 <li>Web interface will reload automatically</li>
@@ -228,8 +228,9 @@
                 if (response.ok) {
                     // Show success message
                     statusMsg.className = 'status-message success';
-                    statusMsg.textContent = '✓ Restart command sent successfully!';
+                    statusMsg.textContent = '✓ Aywana Hub is rebooting and reconnecting to Wi-Fi...';
                     statusMsg.style.display = 'block';
+                    alert('Aywana Hub is rebooting and reconnecting to Wi-Fi.');
 
                     // Show countdown and progress
                     countdown.style.display = 'block';
@@ -247,7 +248,7 @@
 
                         if (seconds <= 0) {
                             clearInterval(countdownInterval);
-                            countdown.textContent = 'Reloading...';
+                            countdown.textContent = 'Reconnecting...';
                             
                             // Reload page
                             setTimeout(() => {
@@ -258,7 +259,7 @@
 
                 } else {
                     statusMsg.className = 'status-message error';
-                    statusMsg.textContent = '✗ Failed to restart ESP32';
+                    statusMsg.textContent = '✗ Failed to restart Aywana Hub';
                     statusMsg.style.display = 'block';
                     btn.disabled = false;
                     cancelBtn.disabled = false;
@@ -278,7 +279,5 @@
     </script>
 </body>
 </html>
-
-
 
 

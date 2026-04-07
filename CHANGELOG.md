@@ -1,6 +1,57 @@
-# Changelog - ESP32 Relay Controller
+# Changelog - Aywana Hub Firmware
 
 This document tracks all issues encountered during development and their solutions.
+
+---
+
+## Version 1.5.1 - Aywana Hub Setup & Recovery UX (April 2026)
+
+### Improvements
+
+#### 1. ✅ Aywana Hub Device Branding
+**Problem**: The local device pages still used older `ESP32 Relay` wording, which no longer matched the current product naming.
+
+**Solution**:
+- Updated the local web pages to say `Aywana Hub`
+- Kept MQTT/device logic unchanged while aligning the user-facing UI
+
+**Files Modified**:
+- `data/index.html`
+- `data/restart.html`
+- `data/admin.html`
+- `data/rf_manager.html`
+- `data/rfsetup.html`
+- `data/script.js`
+
+---
+
+#### 2. ✅ On-Demand WiFiManager Portal Launch
+**Problem**: If the normal web page loaded on `192.168.4.1`, there was no clean way to intentionally reopen WiFiManager without resetting the board.
+
+**Solution**:
+- Added a `Launch WiFi Setup Portal` action in the local UI
+- The board now stores a one-time flag, reboots, and comes back up directly in WiFiManager
+- This avoids trying to run WiFiManager live on top of the normal web app
+
+**Files Modified**:
+- `src/main.cpp`
+- `data/index.html`
+
+---
+
+#### 3. ✅ Cleaner WiFiManager Setup Defaults
+**Problem**: The setup experience still had stale defaults and less clear wording.
+
+**Solution**:
+- Setup AP name is now `Aywana-Hub-Setup-XXXXXX`
+- WiFiManager default broker is now `maglev.proxy.rlwy.net:44016`
+- `MQTT Hostname (for HA)` was simplified to `MQTT Hostname`
+- The field now shows helper text instructing the installer to paste the MQTT username there
+- If the stored hostname is still the old default `esp32-relay`, the field is left blank instead of prefilled
+
+**Files Modified**:
+- `include/config.h`
+- `src/main.cpp`
 
 ---
 
@@ -504,11 +555,11 @@ pio run --target uploadfs  # Upload web files
 
 ## Current Version Stats
 
-**Version**: 1.4  
+**Version**: 1.5.1  
 **Lines of Code**: ~1,000+ (main.cpp)  
 **RAM Usage**: 15.0% (49KB / 320KB)  
 **Flash Usage**: 78.9% (1,033KB / 1,310KB)  
-**Supported Relays**: 16 (configurable 8/12/16)  
+**Supported Relays**: 8 (current fixed board mapping)  
 **Web Files**: 7 HTML/CSS/JS files  
 **Documentation Files**: 13 markdown files  
 
@@ -592,8 +643,9 @@ Use this checklist when deploying updates:
 
 ### Admin Features
 - [ ] Admin panel requires password
-- [ ] Relay count configuration works
+- [ ] Launch WiFi Setup Portal reopens WiFiManager
 - [ ] MQTT credential changes save
+- [ ] Factory reset clears all saved settings
 
 ### RF Features (if used)
 - [ ] Learning mode activates

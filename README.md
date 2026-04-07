@@ -1,4 +1,4 @@
-# ESP32 Relay Controller
+# Aywana Hub Firmware
 
 **WIFI Signal should be <-60 dBm for stable results**
 
@@ -15,7 +15,7 @@
 > pio run --target upload       # Upload firmware (when code changes)
 > ```
 
-A professional ESP32-based relay controller with WiFi configuration portal, full Home Assistant integration via MQTT, and 433MHz RF receiver support.
+A professional ESP32-based relay controller branded as **Aywana Hub**, with WiFi configuration portal, full Home Assistant integration via MQTT, and 433MHz RF receiver support.
 
 ## Cloud Middleware Note
 
@@ -46,7 +46,7 @@ If the MQTT password field shows dots, that is a masked placeholder returned by 
 
 - 🔌 **8-Channel Relay Control**: Fixed 8-relay mapping for the current hardware
 - 📡 **WiFi Manager**: Captive portal for easy WiFi and MQTT configuration
-- 🌐 **Web Interface**: Modern, responsive web UI accessible via `.local` domain
+- 🌐 **Web Interface**: Modern, responsive **Aywana Hub** UI accessible via `.local` domain or IP
 - 🏠 **Home Assistant Integration**: Full MQTT auto-discovery support
 - 📻 **RF Receiver**: SYN480R 433MHz receiver with learning mode
 - 🔐 **Admin Panel**: Password-protected configuration panel
@@ -68,14 +68,14 @@ Connect the relays to the GPIO pins defined in `include/config.h`:
 
 ```
 Current GPIO Pin Configuration (8 relays):
-- Relay 1: GPIO 13  (old Relay 1)
-- Relay 2: GPIO 12  (old Relay 2)
-- Relay 3: GPIO 14  (old Relay 3)
-- Relay 4: GPIO 27  (old Relay 4)
-- Relay 5: GPIO 26  (old Relay 5)
-- Relay 6: GPIO 25  (old Relay 6)
-- Relay 7: GPIO 32  (old Relay 8)
-- Relay 8: GPIO 4   (old Relay 10)
+- Relay 1: GPIO 13
+- Relay 2: GPIO 4
+- Relay 3: GPIO 12
+- Relay 4: GPIO 14
+- Relay 5: GPIO 27
+- Relay 6: GPIO 26
+- Relay 7: GPIO 25
+- Relay 8: GPIO 32
 
 Optional - RF Receiver:
 - RF Data Pin: GPIO 15
@@ -158,19 +158,23 @@ Optional - RF Receiver:
 ### 1. WiFi Configuration
 
 1. After uploading, the ESP32 will create a WiFi access point:
-  - **SSID**: `ESP32-Relay-Setup`
-  - **Password**: `12345678`
+  - **SSID**: `Aywana-Hub-Setup-XXXXXX`
+  - **Password**: `aywanapass26`
+  - `XXXXXX` is the last 6 hexadecimal characters of the board MAC address
 2. Connect to this network with your phone or computer
 3. A captive portal should open automatically (or navigate to `192.168.4.1`)
-4. Enter your WiFi credentials and MQTT settings:
+4. If you land on the normal Aywana Hub page instead of WiFiManager, click **Launch WiFi Setup Portal** to reboot directly into WiFiManager on the next boot
+5. Enter your WiFi credentials and MQTT settings:
   - **SSID**: Your WiFi network name
   - **Password**: Your WiFi password
-  - **MQTT Server**: IP address of your MQTT broker (e.g., `192.168.1.100`)
-  - **MQTT Port**: Usually `1883`
+  - **MQTT Server**: `maglev.proxy.rlwy.net`
+  - **MQTT Port**: `44016`
   - **MQTT User**: MQTT username (if required)
   - **MQTT Password**: MQTT password (if required)
   - **MQTT Hostname**: topic namespace used under `homeassistant/switch/<mqtt_hostname>/...` and the source for the board's `.local` URL
-5. Click "Save" - the ESP32 will connect to your WiFi
+    - the WiFiManager field is labeled `MQTT Hostname`
+    - if the board is still on the default value, it is left blank and shows helper text: `Paste your MQTT username here`
+6. Click "Save" - the Aywana Hub will connect to your WiFi
 
 Use a unique `MQTT Hostname` for every board on the same local network. Example:
 
@@ -181,9 +185,9 @@ For the current Railway secure broker, use:
 
 - MQTT Server: `maglev.proxy.rlwy.net`
 - MQTT Port: `44016`
-- MQTT User: `esp32-relay`
-- MQTT Password: `BoardPass123`
-- MQTT Hostname: `esp32-relay`
+- MQTT User: your board-specific MQTT username
+- MQTT Password: that board's MQTT password
+- MQTT Hostname: usually the same value as the MQTT username
 
 ## Current Firmware Baseline
 
@@ -234,7 +238,7 @@ The controller automatically publishes MQTT discovery messages to Home Assistant
 2. Restart Home Assistant
 3. The relays will automatically appear as switches in Home Assistant
 4. Find them in:
-  - **Devices & Services** → **MQTT** → **ESP32-Relay**
+  - **Devices & Services** → **MQTT** → your board name / MQTT hostname
 
 ### Manual MQTT Topics
 
@@ -244,8 +248,8 @@ If auto-discovery doesn't work, you can manually configure switches:
 switch:
   - platform: mqtt
     name: "Relay 1"
-    state_topic: "homeassistant/switch/esp32-relay/relay1/state"
-    command_topic: "homeassistant/switch/esp32-relay/relay1/set"
+    state_topic: "homeassistant/switch/dany/relay1/state"
+    command_topic: "homeassistant/switch/dany/relay1/set"
     payload_on: "ON"
     payload_off: "OFF"
 ```
@@ -268,7 +272,9 @@ switch:
 
 ### Settings
 
-- Reset WiFi configuration
+- Launch WiFiManager on demand
+- Reset WiFi configuration only
+- Factory reset all saved settings
 - Reconfigure MQTT settings
 
 ## MQTT Topics Structure
@@ -276,24 +282,24 @@ switch:
 ### State Topics (Published by ESP32)
 
 ```
-homeassistant/switch/esp32-relay/relay1/state
-homeassistant/switch/esp32-relay/relay2/state
+homeassistant/switch/<mqtt_hostname>/relay1/state
+homeassistant/switch/<mqtt_hostname>/relay2/state
 ...
 ```
 
 ### Command Topics (Subscribed by ESP32)
 
 ```
-homeassistant/switch/esp32-relay/relay1/set
-homeassistant/switch/esp32-relay/relay2/set
+homeassistant/switch/<mqtt_hostname>/relay1/set
+homeassistant/switch/<mqtt_hostname>/relay2/set
 ...
 ```
 
 ### Discovery Topics
 
 ```
-homeassistant/switch/esp32-relay/relay1/config
-homeassistant/switch/esp32-relay/relay2/config
+homeassistant/switch/<mqtt_hostname>/relay1/config
+homeassistant/switch/<mqtt_hostname>/relay2/config
 ...
 ```
 
@@ -358,7 +364,7 @@ pio run --target uploadfs
 # Upload the filesystem (web files)
 pio run --target uploadfs
 
-# Then reboot the ESP32 (press RESET button)
+# Then reboot the Aywana Hub (press RESET button)
 ```
 
 **Why this happens**: 
@@ -373,7 +379,7 @@ pio run --target uploadfs
 2. Check serial monitor for IP address
 3. Try IP address instead of `.local` domain
 4. Ensure you're on the same network
-5. Restart ESP32
+5. Restart Aywana Hub
 
 ### MQTT Not Connecting
 
@@ -389,11 +395,13 @@ pio run --target uploadfs
 3. Test relays manually with jumpers
 4. Check serial monitor for errors
 
-### Reset Configuration
+### Reset Options
 
-1. Via web interface: Click "Reset Configuration"
-2. Via serial: Connect and reflash
-3. Via code: Call `WiFiManager::resetSettings()`
+1. **Launch WiFi Setup Portal**: Reboots directly into WiFiManager at `192.168.4.1`
+2. **Reset Configuration**: Clears WiFiManager WiFi credentials and restarts
+3. **Factory Reset**: Clears WiFi, MQTT settings, relay state memory, and learned RF codes
+4. Via serial: Connect and reflash
+5. Via code: Call `WiFiManager::resetSettings()` for WiFi-only reset
 
 ## API Endpoints
 
@@ -466,6 +474,14 @@ Update MQTT credentials (requires authentication)
 #### POST /api/reset
 
 Reset WiFi configuration and restart
+
+#### POST /api/wifi/setup-portal
+
+Restart directly into the WiFiManager setup portal
+
+#### POST /api/factory-reset
+
+Erase WiFi, MQTT settings, relay state memory, and learned RF codes, then restart
 
 ### RF Receiver
 
@@ -614,21 +630,22 @@ Admin Panel:        http://<mqtt-hostname>.local/solaceadmin
                     Username: admin
                     Password: Solacepass@123
 
-RF Learning:        http://<mqtt-hostname>.local/rf_learn.html
+RF Learning:        http://<mqtt-hostname>.local/rf_manager.html
 ```
 
 ### Default Credentials
 
 **WiFi AP Mode** (if not configured):
 
-- SSID: `ESP32-Relay-Setup`
-- Password: `12345678`
+- SSID: `Aywana-Hub-Setup-XXXXXX`
+- Password: `aywanapass26`
 
 **MQTT** (firmware defaults before reconfiguration, changeable via web):
 
-- Broker: `192.168.68.100:1883`
-- User: `solacemqtt`
-- Password: `solacepass`
+- Broker: `maglev.proxy.rlwy.net:44016`
+- User: blank by default in WiFiManager
+- Password: blank by default in WiFiManager
+- Hostname: blank by default if the stored value is still `esp32-relay`
 
 **Admin Panel**:
 

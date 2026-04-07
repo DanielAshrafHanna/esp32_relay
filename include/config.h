@@ -3,24 +3,23 @@
 
 // Device Configuration
 #define DEVICE_NAME "ESP32-Relay"
-#define AP_NAME "ESP32-Relay-Setup"
-#define AP_PASSWORD "12345678"
+#define AP_NAME_PREFIX "Aywana-Hub-Setup-"
+#define AP_PASSWORD "aywanapass26"
 
 // Relay Configuration
 #define NUM_RELAYS 8  // Logical relays 1-8 mapped onto the current 8-channel board
 
 // Relay GPIO Pins for the current 8-channel board.
-// Logical channels 1-8 map to the old 16-channel layout positions:
-// 1, 2, 3, 4, 5, 6, 8, 10
+// Logical channels 1-8 follow the current board wiring order.
 static constexpr int RELAY_PINS[NUM_RELAYS] = {
     13,  // Relay 1
-    12,  // Relay 2
-    14,  // Relay 3
-    27,  // Relay 4
-    26,  // Relay 5
-    25,  // Relay 6
-    32,  // Relay 7 (old Relay 8)
-    4    // Relay 8 (old Relay 10)
+    4,   // Relay 2
+    12,  // Relay 3
+    14,  // Relay 4
+    27,  // Relay 5
+    26,  // Relay 6
+    25,  // Relay 7
+    32   // Relay 8
 };
 
 // Relay Names (customize as needed)

@@ -1,6 +1,6 @@
 # Documentation Index
 
-**ESP32 Relay Controller - Complete Documentation Guide**
+**Aywana Hub Firmware - Complete Documentation Guide**
 
 This index helps you quickly find the documentation you need.
 
@@ -82,13 +82,13 @@ pio run --target uploadfs
 ---
 
 ### Issue: .local URL Not Working
-**Symptom**: Can't access `http://esp32-relay.local`
+**Symptom**: Can't access `http://<mqtt-hostname>.local`
 
 ➡️ Read: 
 1. **MDNS_FIX.md** - ESP32-side fixes
 2. **PC_MDNS_TROUBLESHOOTING.md** - PC-side fixes
 
-**Quick Test**: Does it work on your phone? If yes, it's a PC issue.
+**Quick Test**: Try the board IP first. If `.local` fails but IP works, it is usually an mDNS/client-network issue rather than relay firmware control.
 
 ---
 
@@ -160,7 +160,7 @@ esp32_rellay/
 ├── data/
 │   ├── index.html            - Main control page
 │   ├── admin.html            - Admin panel
-│   ├── rf_learn.html         - RF learning page
+│   ├── rf_manager.html       - RF management page
 │   ├── style.css             - Global styles
 │   └── script.js             - Client-side JS
 └── platformio.ini            - Build configuration
