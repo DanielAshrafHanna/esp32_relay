@@ -196,6 +196,26 @@ function consoleHtml() {
       color: var(--muted);
       margin-bottom: 12px;
     }
+    details.advanced-tools {
+      border: 1px solid rgba(24, 32, 39, 0.08);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.56);
+      padding: 14px 16px;
+    }
+    details.advanced-tools summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: var(--ink);
+      list-style: none;
+    }
+    details.advanced-tools summary::-webkit-details-marker {
+      display: none;
+    }
+    .advanced-copy {
+      margin: 10px 0 14px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
     .device-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
@@ -307,39 +327,6 @@ function consoleHtml() {
 
     <section class="card" style="margin-bottom:20px;">
       <div class="toolbar">
-        <h2>Webhook Tester</h2>
-      </div>
-      <div class="grid-4">
-        <div>
-          <label for="webhook-domain">Domain</label>
-          <select id="webhook-domain">
-            <option value="lock">lock</option>
-            <option value="light">light</option>
-            <option value="switch">switch</option>
-            <option value="cover">cover</option>
-          </select>
-        </div>
-        <div>
-          <label for="webhook-service">Service</label>
-          <input id="webhook-service" value="unlock">
-        </div>
-        <div>
-          <label for="webhook-entity">Entity ID</label>
-          <input id="webhook-entity" value="lock.aywanalocker_door">
-        </div>
-        <div>
-          <label for="webhook-body">Body Preview</label>
-          <input id="webhook-body" value='{"entity_id":"lock.aywanalocker_door"}'>
-        </div>
-      </div>
-      <div class="actions" style="margin-top:12px;">
-        <button id="send-webhook">Send Compatibility Webhook</button>
-      </div>
-      <div id="webhook-status" class="status">Ready.</div>
-    </section>
-
-    <section class="card" style="margin-bottom:20px;">
-      <div class="toolbar">
         <h2>Sites</h2>
         <div class="muted">Keep clubs organized with simple location groups, then assign boards into them.</div>
       </div>
@@ -361,46 +348,83 @@ function consoleHtml() {
 
     <section class="card" style="margin-bottom:20px;">
       <div class="toolbar">
-        <h2>Board Onboarding</h2>
-        <div class="muted">Create a relay board manually, or claim one from the discovered list below if it already connected to MQTT.</div>
-      </div>
-      <div class="grid-4">
-        <div>
-          <label for="new-board-title">Board Title</label>
-          <input id="new-board-title" placeholder="Dany Main Board">
-        </div>
-        <div>
-          <label for="new-board-hostname">MQTT Hostname</label>
-          <input id="new-board-hostname" placeholder="dany">
-        </div>
-        <div>
-          <label for="new-board-device-key">Device Key</label>
-          <input id="new-board-device-key" placeholder="Optional, defaults to MQTT hostname">
-        </div>
-        <div>
-          <label for="new-board-site">Site</label>
-          <select id="new-board-site">
-            <option value="">Default site</option>
-          </select>
-        </div>
-        <div>
-          <label for="new-board-channels">Channel Count</label>
-          <input id="new-board-channels" type="number" min="1" max="8" value="8">
-        </div>
-      </div>
-      <div class="actions" style="margin-top:12px;">
-        <button id="create-board-btn">Create Board</button>
-      </div>
-      <div id="provisioning-status" class="status">Create a board here, then paste the returned bootstrap line into the secure Mosquitto service variable <span class="mono">MQTT_BOOTSTRAP_USERS</span>.</div>
-    </section>
-
-    <section class="card" style="margin-bottom:20px;">
-      <div class="toolbar">
         <h2>Discovered Boards</h2>
-        <div class="muted">Unknown ESP boards that connected to MQTT appear here. Claim one to create it in the middleware without typing the hostname twice.</div>
+        <div class="muted">This is the normal board onboarding flow. Unknown ESP boards that connect to MQTT appear here so you can claim them into the right site.</div>
       </div>
       <div id="discovery-list"></div>
       <div id="discovery-status" class="status">Load Devices to refresh discovered MQTT boards.</div>
+    </section>
+
+    <section class="card" style="margin-bottom:20px;">
+      <details class="advanced-tools">
+        <summary>Advanced Tools</summary>
+        <div class="advanced-copy">Use these only if discovery is unavailable or you want to test webhook behavior directly. Manual add flow: create the site first, enter the board MQTT hostname exactly as the ESP uses it, optionally keep the device key the same, choose the site, create the board, then paste the returned bootstrap line into <span class="mono">MQTT_BOOTSTRAP_USERS</span> before connecting the ESP.</div>
+
+        <div class="toolbar">
+          <h2>Manual Board Add</h2>
+          <div class="muted">Fallback only. Discovery and claim is the preferred path.</div>
+        </div>
+        <div class="grid-4">
+          <div>
+            <label for="new-board-title">Board Title</label>
+            <input id="new-board-title" placeholder="Dany Main Board">
+          </div>
+          <div>
+            <label for="new-board-hostname">MQTT Hostname</label>
+            <input id="new-board-hostname" placeholder="dany">
+          </div>
+          <div>
+            <label for="new-board-device-key">Device Key</label>
+            <input id="new-board-device-key" placeholder="Optional, defaults to MQTT hostname">
+          </div>
+          <div>
+            <label for="new-board-site">Site</label>
+            <select id="new-board-site">
+              <option value="">Default site</option>
+            </select>
+          </div>
+          <div>
+            <label for="new-board-channels">Channel Count</label>
+            <input id="new-board-channels" type="number" min="1" max="8" value="8">
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+          <button id="create-board-btn">Create Board</button>
+        </div>
+        <div id="provisioning-status" class="status">Manual board add returns the MQTT credential line you still need to paste into <span class="mono">MQTT_BOOTSTRAP_USERS</span>.</div>
+
+        <div class="toolbar" style="margin-top:18px;">
+          <h2>Webhook Tester</h2>
+          <div class="muted">Useful for debugging entity mappings and compatibility calls.</div>
+        </div>
+        <div class="grid-4">
+          <div>
+            <label for="webhook-domain">Domain</label>
+            <select id="webhook-domain">
+              <option value="lock">lock</option>
+              <option value="light">light</option>
+              <option value="switch">switch</option>
+              <option value="cover">cover</option>
+            </select>
+          </div>
+          <div>
+            <label for="webhook-service">Service</label>
+            <input id="webhook-service" value="unlock">
+          </div>
+          <div>
+            <label for="webhook-entity">Entity ID</label>
+            <input id="webhook-entity" value="lock.aywanalocker_door">
+          </div>
+          <div>
+            <label for="webhook-body">Body Preview</label>
+            <input id="webhook-body" value='{"entity_id":"lock.aywanalocker_door"}'>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px;">
+          <button id="send-webhook">Send Compatibility Webhook</button>
+        </div>
+        <div id="webhook-status" class="status">Ready.</div>
+      </details>
     </section>
 
     <section class="card">
