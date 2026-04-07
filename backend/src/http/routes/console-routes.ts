@@ -160,11 +160,15 @@ function consoleHtml() {
     .site-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
-      background: rgba(255,255,255,0.56);
+      background:
+        linear-gradient(180deg, rgba(245, 251, 250, 0.88), rgba(255,255,255,0.72)),
+        repeating-linear-gradient(135deg, rgba(19,93,102,0.028), rgba(19,93,102,0.028) 10px, transparent 10px, transparent 20px);
       padding: 16px;
     }
     .site-section[open] {
-      background: rgba(255,255,255,0.68);
+      background:
+        linear-gradient(180deg, rgba(239, 249, 248, 0.92), rgba(255,255,255,0.82)),
+        repeating-linear-gradient(135deg, rgba(19,93,102,0.036), rgba(19,93,102,0.036) 10px, transparent 10px, transparent 20px);
     }
     .site-toggle {
       list-style: none;
@@ -229,8 +233,28 @@ function consoleHtml() {
     .device-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
-      background: rgba(255,255,255,0.68);
+      background:
+        linear-gradient(180deg, rgba(255,255,255,0.96), rgba(250,248,242,0.92)),
+        radial-gradient(circle at top right, rgba(19,93,102,0.05), transparent 35%);
+      padding: 0;
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+    }
+    .device-section[open] {
+      border-color: rgba(19,93,102,0.16);
+    }
+    .device-toggle {
+      list-style: none;
+      cursor: pointer;
       padding: 16px;
+    }
+    .device-toggle::-webkit-details-marker {
+      display: none;
+    }
+    .device-content {
+      padding: 0 16px 16px;
+      border-top: 1px solid rgba(24, 32, 39, 0.08);
+      background: linear-gradient(180deg, rgba(255,255,255,0.76), rgba(248,244,236,0.68));
     }
     .device-head {
       display: flex;
@@ -250,9 +274,24 @@ function consoleHtml() {
       padding: 6px 10px;
       border: 1px solid var(--line);
       border-radius: 999px;
-      background: white;
+      background: rgba(255,255,255,0.82);
       color: var(--muted);
       font-size: 0.84rem;
+    }
+    .device-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .device-summary span {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(19,93,102,0.08);
+      color: var(--accent);
+      font-size: 0.82rem;
+      font-weight: 700;
     }
     .toggle-line {
       display: flex;
@@ -481,7 +520,8 @@ function consoleHtml() {
       devices: [],
       discoveredBoards: [],
       sites: [],
-      siteCollapse: JSON.parse(localStorage.getItem("solace_site_collapse") || "{}")
+      siteCollapse: JSON.parse(localStorage.getItem("solace_site_collapse") || "{}"),
+      boardCollapse: JSON.parse(localStorage.getItem("solace_board_collapse") || "{}")
     };
 
     const authStatus = document.getElementById("auth-status");
@@ -528,6 +568,18 @@ function consoleHtml() {
 
     function persistSiteCollapse() {
       localStorage.setItem("solace_site_collapse", JSON.stringify(state.siteCollapse));
+    }
+
+    function boardCollapseKey(device) {
+      return device.id || device.mqttHostname || device.deviceKey;
+    }
+
+    function isBoardExpanded(device) {
+      return state.boardCollapse[boardCollapseKey(device)] !== false;
+    }
+
+    function persistBoardCollapse() {
+      localStorage.setItem("solace_board_collapse", JSON.stringify(state.boardCollapse));
     }
 
     function boardMatchesFilters(device, outputs) {
@@ -988,8 +1040,8 @@ function consoleHtml() {
 
         const siteBoards = siteDevices.map((device) => {
           const outputs = (outputsByDevice.get(device.id) || []).sort((a, b) => a.channel - b.channel);
-          const section = document.createElement("section");
-          section.className = "device-section";
+          const boardExpanded = isBoardExpanded(device);
+          const boardKey = boardCollapseKey(device);
 
           const rows = outputs.map((output) => {
             return \`
@@ -1014,53 +1066,64 @@ function consoleHtml() {
             \`;
           }).join("");
 
-          section.innerHTML = \`
-            <div class="device-head">
-              <div>
-                <h3>\${device.displayName || device.deviceKey}</h3>
-                <div class="device-meta">
-                  <span class="mono">MQTT: \${device.mqttHostname}</span>
-                  <span>Availability: \${device.availability}</span>
-                  <span>Key: \${device.deviceKey}</span>
-                  \${telemetryBadges(device).map((badge) => '<span>' + badge + '</span>').join("")}
+          return \`
+            <details class="device-section" data-device-key="\${escapeHtml(boardKey)}" \${boardExpanded ? "open" : ""}>
+              <summary class="device-toggle">
+                <div class="device-head">
+                  <div>
+                    <h3>\${device.displayName || device.deviceKey}</h3>
+                    <div class="device-meta">
+                      <span class="mono">MQTT: \${device.mqttHostname}</span>
+                      <span>Availability: \${device.availability}</span>
+                      <span>Key: \${device.deviceKey}</span>
+                      \${telemetryBadges(device).map((badge) => '<span>' + badge + '</span>').join("")}
+                    </div>
+                    <div class="device-summary">
+                      <span>\${outputs.length} relay row(s)</span>
+                      <span>\${boardExpanded ? "Expanded" : "Collapsed"}</span>
+                    </div>
+                  </div>
+                </div>
+              </summary>
+              <div class="device-content">
+                <div class="device-head">
+                  <div></div>
+                  <div style="min-width:320px;">
+                    <label>Board Title</label>
+                    <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
+                    <label style="margin-top:10px;">Site</label>
+                    <select data-device-field="site_id" data-device-id="\${device.id}">
+                      \${siteOptionsMarkup(device.siteId || "", "Unassigned")}
+                    </select>
+                    <div class="actions" style="margin-top:10px; align-items:center;">
+                      <label class="toggle-line">
+                        <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
+                        Enable this relay board for webhook/API commands
+                      </label>
+                      <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
+                      <button class="warn delete-device-btn" data-device-id="\${device.id}" data-device-name="\${device.displayName || device.deviceKey}">Delete Board</button>
+                    </div>
+                  </div>
+                </div>
+                <div style="overflow:auto;">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Channel</th>
+                        <th>State</th>
+                        <th>Display</th>
+                        <th>Profile</th>
+                        <th>Entity</th>
+                        <th>Pulse</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>\${rows || '<tr><td colspan="7" class="muted">No outputs for this device.</td></tr>'}</tbody>
+                  </table>
                 </div>
               </div>
-              <div style="min-width:320px;">
-                <label>Board Title</label>
-                <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
-                <label style="margin-top:10px;">Site</label>
-                <select data-device-field="site_id" data-device-id="\${device.id}">
-                  \${siteOptionsMarkup(device.siteId || "", "Unassigned")}
-                </select>
-                <div class="actions" style="margin-top:10px; align-items:center;">
-                  <label class="toggle-line">
-                    <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
-                    Enable this relay board for webhook/API commands
-                  </label>
-                  <button class="secondary save-device-btn" data-device-id="\${device.id}">Save Board</button>
-                  <button class="warn delete-device-btn" data-device-id="\${device.id}" data-device-name="\${device.displayName || device.deviceKey}">Delete Board</button>
-                </div>
-              </div>
-            </div>
-            <div style="overflow:auto;">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Channel</th>
-                    <th>State</th>
-                    <th>Display</th>
-                    <th>Profile</th>
-                    <th>Entity</th>
-                    <th>Pulse</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>\${rows || '<tr><td colspan="7" class="muted">No outputs for this device.</td></tr>'}</tbody>
-              </table>
-            </div>
+            </details>
           \`;
-
-          return section.outerHTML;
         }).join("");
 
         const siteMarkup = \`
@@ -1582,30 +1645,43 @@ function consoleHtml() {
       });
     }
 
-    const collapseSitesButton = document.getElementById("collapse-sites-btn");
-    if (collapseSitesButton instanceof HTMLButtonElement) {
-      collapseSitesButton.addEventListener("click", () => {
-        for (const siteName of new Set(state.devices.map((device) => normalizedSiteName(device)))) {
-          state.siteCollapse[siteName] = false;
+      const collapseSitesButton = document.getElementById("collapse-sites-btn");
+      if (collapseSitesButton instanceof HTMLButtonElement) {
+        collapseSitesButton.addEventListener("click", () => {
+          for (const siteName of new Set(state.devices.map((device) => normalizedSiteName(device)))) {
+            state.siteCollapse[siteName] = false;
         }
         persistSiteCollapse();
         renderOutputs();
       });
     }
 
-    deviceSections.addEventListener("toggle", (event) => {
-      const rawTarget = event.target;
-      if (!(rawTarget instanceof HTMLDetailsElement) || !rawTarget.matches(".site-section[data-site-name]")) {
+      deviceSections.addEventListener("toggle", (event) => {
+        const rawTarget = event.target;
+      if (!(rawTarget instanceof HTMLDetailsElement)) {
         return;
       }
 
-      const siteName = rawTarget.dataset.siteName || "";
-      if (!siteName) {
+      if (rawTarget.matches(".site-section[data-site-name]")) {
+        const siteName = rawTarget.dataset.siteName || "";
+        if (!siteName) {
+          return;
+        }
+
+        state.siteCollapse[siteName] = rawTarget.open;
+        persistSiteCollapse();
         return;
       }
 
-      state.siteCollapse[siteName] = rawTarget.open;
-      persistSiteCollapse();
+      if (rawTarget.matches(".device-section[data-device-key]")) {
+        const deviceKey = rawTarget.dataset.deviceKey || "";
+        if (!deviceKey) {
+          return;
+        }
+
+        state.boardCollapse[deviceKey] = rawTarget.open;
+        persistBoardCollapse();
+      }
     }, true);
 
     deviceSections.addEventListener("change", (event) => {
