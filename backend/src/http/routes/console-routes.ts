@@ -163,6 +163,16 @@ function consoleHtml() {
       background: rgba(255,255,255,0.56);
       padding: 16px;
     }
+    .site-section[open] {
+      background: rgba(255,255,255,0.68);
+    }
+    .site-toggle {
+      list-style: none;
+      cursor: pointer;
+    }
+    .site-toggle::-webkit-details-marker {
+      display: none;
+    }
     .site-head {
       display: flex;
       justify-content: space-between;
@@ -454,6 +464,10 @@ function consoleHtml() {
         </div>
       </div>
       <div id="board-summary" class="compact-note">Load devices to organize boards by site.</div>
+      <div class="actions" style="margin-bottom:12px;">
+        <button class="secondary mini-btn" id="expand-sites-btn">Expand All Sites</button>
+        <button class="secondary mini-btn" id="collapse-sites-btn">Collapse All Sites</button>
+      </div>
       <div id="device-sections" class="device-stack"></div>
       <div id="outputs-status" class="status">Load outputs to begin.</div>
     </section>
@@ -466,7 +480,8 @@ function consoleHtml() {
       outputs: [],
       devices: [],
       discoveredBoards: [],
-      sites: []
+      sites: [],
+      siteCollapse: JSON.parse(localStorage.getItem("solace_site_collapse") || "{}")
     };
 
     const authStatus = document.getElementById("auth-status");
@@ -505,6 +520,14 @@ function consoleHtml() {
 
     function normalizedSiteName(device) {
       return (device.siteName && device.siteName.trim()) || "Unassigned Site";
+    }
+
+    function isSiteExpanded(siteName) {
+      return state.siteCollapse[siteName] !== false;
+    }
+
+    function persistSiteCollapse() {
+      localStorage.setItem("solace_site_collapse", JSON.stringify(state.siteCollapse));
     }
 
     function boardMatchesFilters(device, outputs) {
@@ -957,8 +980,7 @@ function consoleHtml() {
       deviceSections.className = "site-stack";
 
       for (const [siteName, siteDevices] of Array.from(devicesBySite.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
-        const siteSection = document.createElement("section");
-        siteSection.className = "site-section";
+        const siteExpanded = isSiteExpanded(siteName);
 
         const onlineCount = siteDevices.filter((device) => device.availability === "online").length;
         const offlineCount = siteDevices.filter((device) => device.availability === "offline").length;
@@ -1041,22 +1063,27 @@ function consoleHtml() {
           return section.outerHTML;
         }).join("");
 
-        siteSection.innerHTML = \`
-          <div class="site-head">
-            <div>
-              <h3>\${siteName}</h3>
-              <div class="muted">\${siteCustomerNames.join(" · ") || "No customer label"}</div>
-            </div>
-            <div class="site-summary">
-              <span>\${siteDevices.length} board(s)</span>
-              <span>\${onlineCount} online</span>
-              <span>\${offlineCount} offline</span>
-            </div>
-          </div>
-          <div class="device-stack">\${siteBoards}</div>
+        const siteMarkup = \`
+          <details class="site-section" data-site-name="\${escapeHtml(siteName)}" \${siteExpanded ? "open" : ""}>
+            <summary class="site-toggle">
+              <div class="site-head">
+                <div>
+                  <h3>\${siteName}</h3>
+                  <div class="muted">\${siteCustomerNames.join(" · ") || "No customer label"}</div>
+                </div>
+                <div class="site-summary">
+                  <span>\${siteDevices.length} board(s)</span>
+                  <span>\${onlineCount} online</span>
+                  <span>\${offlineCount} offline</span>
+                  <span>\${siteExpanded ? "Expanded" : "Collapsed"}</span>
+                </div>
+              </div>
+            </summary>
+            <div class="device-stack">\${siteBoards}</div>
+          </details>
         \`;
 
-        deviceSections.appendChild(siteSection);
+        deviceSections.insertAdjacentHTML("beforeend", siteMarkup);
       }
     }
 
@@ -1543,6 +1570,43 @@ function consoleHtml() {
     if (availabilityFilterInput instanceof HTMLSelectElement) {
       availabilityFilterInput.addEventListener("change", () => renderOutputs());
     }
+
+    const expandSitesButton = document.getElementById("expand-sites-btn");
+    if (expandSitesButton instanceof HTMLButtonElement) {
+      expandSitesButton.addEventListener("click", () => {
+        for (const siteName of new Set(state.devices.map((device) => normalizedSiteName(device)))) {
+          state.siteCollapse[siteName] = true;
+        }
+        persistSiteCollapse();
+        renderOutputs();
+      });
+    }
+
+    const collapseSitesButton = document.getElementById("collapse-sites-btn");
+    if (collapseSitesButton instanceof HTMLButtonElement) {
+      collapseSitesButton.addEventListener("click", () => {
+        for (const siteName of new Set(state.devices.map((device) => normalizedSiteName(device)))) {
+          state.siteCollapse[siteName] = false;
+        }
+        persistSiteCollapse();
+        renderOutputs();
+      });
+    }
+
+    deviceSections.addEventListener("toggle", (event) => {
+      const rawTarget = event.target;
+      if (!(rawTarget instanceof HTMLDetailsElement) || !rawTarget.matches(".site-section[data-site-name]")) {
+        return;
+      }
+
+      const siteName = rawTarget.dataset.siteName || "";
+      if (!siteName) {
+        return;
+      }
+
+      state.siteCollapse[siteName] = rawTarget.open;
+      persistSiteCollapse();
+    }, true);
 
     deviceSections.addEventListener("change", (event) => {
       const rawTarget = event.target;
