@@ -240,6 +240,17 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     };
   });
 
+  app.delete("/v1/discovery/boards/:mqtt_hostname", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    const params = request.params as { mqtt_hostname: string };
+    const deleted = await services.provisioningService.dismissDiscoveredBoard(principal, params.mqtt_hostname);
+
+    return {
+      ok: true,
+      deleted,
+    };
+  });
+
   app.post("/v1/discovery/boards/:mqtt_hostname/claim", async (request, reply) => {
     const principal = await requirePrincipal(request, services);
     const params = request.params as { mqtt_hostname: string };

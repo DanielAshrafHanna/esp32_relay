@@ -250,6 +250,14 @@ function consoleHtml() {
       color: var(--muted);
       white-space: nowrap;
     }
+    .discovery-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
     .device-section {
       border: 1px solid rgba(24, 32, 39, 0.08);
       border-radius: 18px;
@@ -422,6 +430,13 @@ function consoleHtml() {
         <h2>Discovered Boards</h2>
         <div class="muted">This is the normal board onboarding flow. Unknown ESP boards that connect to MQTT appear here so you can claim them into the right site.</div>
       </div>
+      <div class="discovery-toolbar">
+        <div id="discovery-summary" class="compact-note" style="margin:0;">Load Devices to refresh discovered MQTT boards.</div>
+        <label class="toggle-line">
+          <input type="checkbox" id="show-stale-discovery">
+          Show stale discovered boards
+        </label>
+      </div>
       <div id="discovery-list"></div>
       <div id="discovery-status" class="status">Load Devices to refresh discovered MQTT boards.</div>
     </section>
@@ -551,6 +566,7 @@ function consoleHtml() {
     const provisioningStatus = document.getElementById("provisioning-status");
     const discoveryStatus = document.getElementById("discovery-status");
     const discoveryList = document.getElementById("discovery-list");
+    const discoverySummary = document.getElementById("discovery-summary");
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
     const serviceTokenInput = document.getElementById("service-token");
@@ -561,6 +577,7 @@ function consoleHtml() {
     const boardSummary = document.getElementById("board-summary");
     const newBoardSiteInput = document.getElementById("new-board-site");
     const siteList = document.getElementById("site-list");
+    const showStaleDiscoveryInput = document.getElementById("show-stale-discovery");
 
     if (serviceTokenInput instanceof HTMLInputElement) {
       serviceTokenInput.value = state.serviceToken;
@@ -709,6 +726,16 @@ function consoleHtml() {
       }
       const ms = Date.parse(value);
       return Number.isNaN(ms) ? null : ms;
+    }
+
+    function isStaleDiscovery(board) {
+      const lastSeen = parseIsoTime(board.lastSeenAt);
+      if (lastSeen === null) {
+        return true;
+      }
+
+      const staleAfterMs = 15 * 60 * 1000;
+      return board.availability !== "online" && (Date.now() - lastSeen) > staleAfterMs;
     }
 
     function formatLatency(ms) {
@@ -1186,12 +1213,20 @@ function consoleHtml() {
     }
 
     function renderDiscoveredBoards() {
-      if (!state.discoveredBoards.length) {
+      const showStale = showStaleDiscoveryInput instanceof HTMLInputElement ? showStaleDiscoveryInput.checked : false;
+      const visibleBoards = state.discoveredBoards.filter((board) => showStale || !isStaleDiscovery(board));
+      const staleCount = state.discoveredBoards.length - visibleBoards.length;
+
+      if (discoverySummary instanceof HTMLElement) {
+        discoverySummary.textContent = visibleBoards.length + " visible discovered board(s)" + (staleCount ? " · " + staleCount + " stale hidden" : "");
+      }
+
+      if (!visibleBoards.length) {
         discoveryList.innerHTML = '<div class="muted">No unclaimed MQTT boards discovered yet.</div>';
         return;
       }
 
-      discoveryList.innerHTML = state.discoveredBoards.map((board) => \`
+      discoveryList.innerHTML = visibleBoards.map((board) => \`
         <div class="device-section" style="margin-bottom:12px;">
           <div class="device-head">
             <div>
@@ -1213,6 +1248,7 @@ function consoleHtml() {
               </select>
               <div class="actions" style="margin-top:10px;">
                 <button class="claim-board-btn" data-mqtt-hostname="\${board.mqttHostname}" data-channel-count="\${board.highestChannel || 8}">Claim Board</button>
+                <button class="secondary dismiss-board-btn" data-mqtt-hostname="\${board.mqttHostname}">Dismiss</button>
               </div>
             </div>
           </div>
@@ -1545,6 +1581,21 @@ function consoleHtml() {
       setStatus(discoveryStatus, "Claimed discovered board " + mqttHostname + ".", "ok");
     }
 
+    async function dismissDiscoveredBoard(mqttHostname) {
+      const response = await fetch("/v1/discovery/boards/" + encodeURIComponent(mqttHostname), {
+        method: "DELETE",
+        headers: authHeaders(true, false)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to dismiss discovered board");
+      }
+
+      state.discoveredBoards = state.discoveredBoards.filter((board) => board.mqttHostname !== mqttHostname);
+      renderDiscoveredBoards();
+      setStatus(discoveryStatus, "Dismissed discovered board " + (data.deleted?.mqttHostname || mqttHostname) + ".", "ok");
+    }
+
     async function createSite() {
       const siteNameInput = document.getElementById("new-site-name");
       const siteName = siteNameInput instanceof HTMLInputElement ? siteNameInput.value.trim() : "";
@@ -1734,6 +1785,10 @@ function consoleHtml() {
       availabilityFilterInput.addEventListener("change", () => renderOutputs());
     }
 
+    if (showStaleDiscoveryInput instanceof HTMLInputElement) {
+      showStaleDiscoveryInput.addEventListener("change", () => renderDiscoveredBoards());
+    }
+
     const expandSitesButton = document.getElementById("expand-sites-btn");
     if (expandSitesButton instanceof HTMLButtonElement) {
       expandSitesButton.addEventListener("click", () => {
@@ -1826,6 +1881,14 @@ function consoleHtml() {
       if (target.classList.contains("claim-board-btn")) {
         try {
           await claimDiscoveredBoard(target.dataset.mqttHostname, target.dataset.channelCount);
+        } catch (error) {
+          setStatus(discoveryStatus, error.message, "error");
+        }
+      }
+
+      if (target.classList.contains("dismiss-board-btn")) {
+        try {
+          await dismissDiscoveredBoard(target.dataset.mqttHostname);
         } catch (error) {
           setStatus(discoveryStatus, error.message, "error");
         }

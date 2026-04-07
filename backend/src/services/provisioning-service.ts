@@ -174,6 +174,36 @@ export class ProvisioningService {
     return result.rows.map((row) => mapDiscoveredBoardRow(row as Record<string, unknown>));
   }
 
+  async dismissDiscoveredBoard(principal: AuthPrincipal, mqttHostname: string): Promise<DiscoveredBoardRecord> {
+    assertScope(principal, "provisioning:write");
+
+    const normalized = normalizeIdentifier(mqttHostname);
+    if (!normalized) {
+      throw new AppError("mqtt_hostname is required", 400, "missing_mqtt_hostname");
+    }
+
+    const discovered = await this.pool.query(
+      `
+        select *
+        from discovered_devices
+        where mqtt_hostname = $1
+      `,
+      [normalized],
+    );
+
+    if (!discovered.rowCount) {
+      throw new AppError("Discovered board not found", 404, "discovered_board_not_found");
+    }
+
+    if (discovered.rows[0].claimed_device_id) {
+      throw new AppError("Claimed boards cannot be dismissed from discovery", 409, "discovered_board_claimed");
+    }
+
+    const record = mapDiscoveredBoardRow(discovered.rows[0]);
+    await this.pool.query("delete from discovered_devices where mqtt_hostname = $1", [normalized]);
+    return record;
+  }
+
   async claimDiscoveredBoard(
     principal: AuthPrincipal,
     mqttHostname: string,
