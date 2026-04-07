@@ -66,6 +66,13 @@ export interface CustomerRecord {
   status: CustomerStatus;
 }
 
+export interface SiteRecord {
+  id: string;
+  customerId: string;
+  customerName: string | null;
+  name: string;
+}
+
 export interface DeviceRecord {
   id: string;
   customerId: string;

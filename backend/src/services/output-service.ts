@@ -1,9 +1,9 @@
 import type { Pool } from "pg";
 import { AppError, NotFoundError } from "../lib/errors.js";
-import type { AuthPrincipal, DeviceRecord, OutputRecord } from "../types/domain.js";
+import type { AuthPrincipal, DeviceRecord, OutputRecord, SiteRecord } from "../types/domain.js";
 import { resolveOutputProfileConfig } from "../domain/output-profiles.js";
 import { createId } from "../lib/security.js";
-import { assertCustomerAccess } from "./authz.js";
+import { assertCustomerAccess, assertScope } from "./authz.js";
 import { mapDeviceRow, mapOutputRow } from "./mappers.js";
 
 const OUTPUT_SELECT = `
@@ -132,6 +132,71 @@ export class OutputService {
     );
 
     return result.rows.map((row) => mapDeviceRow(row as Record<string, unknown>));
+  }
+
+  async listSites(principal: AuthPrincipal): Promise<SiteRecord[]> {
+    const result = await this.pool.query(
+      `
+        select
+          s.id,
+          s.customer_id,
+          c.name as customer_name,
+          s.name
+        from sites s
+        join customers c on c.id = s.customer_id
+        where s.customer_id = any($1::uuid[])
+        order by c.name asc, s.name asc
+      `,
+      [principal.customerIds],
+    );
+
+    return result.rows.map((row) => ({
+      id: String(row.id),
+      customerId: String(row.customer_id),
+      customerName: row.customer_name ? String(row.customer_name) : null,
+      name: String(row.name),
+    }));
+  }
+
+  async createSite(
+    principal: AuthPrincipal,
+    input: { customerId?: string; name: string },
+  ): Promise<SiteRecord> {
+    assertScope(principal, "provisioning:write");
+
+    const customerId = this.resolveCustomerId(principal, input.customerId);
+    const name = input.name.trim();
+    if (!name) {
+      throw new AppError("Site name is required", 400, "missing_site_name");
+    }
+
+    const customerResult = await this.pool.query("select name from customers where id = $1", [customerId]);
+    if (!customerResult.rowCount) {
+      throw new NotFoundError("Customer not found");
+    }
+
+    try {
+      const result = await this.pool.query(
+        `
+          insert into sites (id, customer_id, name)
+          values ($1, $2, $3)
+          returning id, customer_id, name
+        `,
+        [createId(), customerId, name],
+      );
+
+      return {
+        id: String(result.rows[0].id),
+        customerId: String(result.rows[0].customer_id),
+        customerName: String(customerResult.rows[0].name),
+        name: String(result.rows[0].name),
+      };
+    } catch (error) {
+      if (typeof error === "object" && error && "code" in error && error.code === "23505") {
+        throw new AppError("A site with this name already exists for the customer", 409, "site_conflict");
+      }
+      throw error;
+    }
   }
 
   async getDevice(principal: AuthPrincipal, deviceId: string): Promise<DeviceRecord> {
@@ -385,24 +450,42 @@ export class OutputService {
   async updateDevice(
     principal: AuthPrincipal,
     deviceId: string,
-    input: { displayName?: string; desiredEnabled?: boolean },
+    input: { displayName?: string; desiredEnabled?: boolean; siteId?: string | null },
   ): Promise<DeviceRecord> {
     const device = await this.getDevice(principal, deviceId);
+    const shouldUpdateSite = input.siteId !== undefined;
+    let siteId = input.siteId;
+
+    if (siteId !== undefined && siteId !== null) {
+      const normalizedSiteId = siteId.trim();
+      siteId = normalizedSiteId || null;
+    }
+
+    if (siteId) {
+      const siteResult = await this.pool.query("select id from sites where id = $1 and customer_id = $2", [siteId, device.customerId]);
+      if (!siteResult.rowCount) {
+        throw new AppError("Site not found for customer", 400, "invalid_site");
+      }
+    }
 
     await this.pool.query(
       `
         update devices
         set
           desired_enabled = coalesce($2, desired_enabled),
+          site_id = case
+            when $3::boolean then $4::uuid
+            else site_id
+          end,
           metadata = case
-            when $3::text is null then metadata
-            when btrim($3::text) = '' then coalesce(metadata, '{}'::jsonb) - 'display_name'
-            else jsonb_set(coalesce(metadata, '{}'::jsonb), '{display_name}', to_jsonb(btrim($3::text)), true)
+            when $5::text is null then metadata
+            when btrim($5::text) = '' then coalesce(metadata, '{}'::jsonb) - 'display_name'
+            else jsonb_set(coalesce(metadata, '{}'::jsonb), '{display_name}', to_jsonb(btrim($5::text)), true)
           end,
           updated_at = now()
         where id = $1
       `,
-      [device.id, input.desiredEnabled, input.displayName ?? null],
+      [device.id, input.desiredEnabled, shouldUpdateSite, siteId ?? null, input.displayName ?? null],
     );
 
     return this.getDevice(principal, device.id);

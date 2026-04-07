@@ -5,6 +5,30 @@ import { requirePrincipal } from "../request-auth.js";
 import type { HttpServices } from "../types.js";
 
 export async function registerDeviceRoutes(app: FastifyInstance, services: HttpServices) {
+  app.get("/v1/sites", async (request) => {
+    const principal = await requirePrincipal(request, services);
+    return {
+      sites: await services.outputService.listSites(principal),
+    };
+  });
+
+  app.post("/v1/sites", async (request, reply) => {
+    const principal = await requirePrincipal(request, services);
+    const body = (request.body ?? {}) as { customer_id?: string; name?: string };
+
+    if (!body.name) {
+      throw new AppError("name is required", 400, "missing_site_name");
+    }
+
+    const site = await services.outputService.createSite(principal, {
+      customerId: body.customer_id,
+      name: body.name,
+    });
+
+    reply.code(201);
+    return site;
+  });
+
   app.get("/v1/devices", async (request) => {
     const principal = await requirePrincipal(request, services);
     return {
@@ -26,6 +50,8 @@ export async function registerDeviceRoutes(app: FastifyInstance, services: HttpS
     return services.outputService.updateDevice(principal, params.id, {
       displayName: typeof body.display_name === "string" ? body.display_name : undefined,
       desiredEnabled: typeof body.desired_enabled === "boolean" ? body.desired_enabled : undefined,
+      siteId:
+        body.site_id === null ? null : typeof body.site_id === "string" ? body.site_id : undefined,
     });
   });
 

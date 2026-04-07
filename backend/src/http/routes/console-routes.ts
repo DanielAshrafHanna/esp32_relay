@@ -340,6 +340,27 @@ function consoleHtml() {
 
     <section class="card" style="margin-bottom:20px;">
       <div class="toolbar">
+        <h2>Sites</h2>
+        <div class="muted">Keep clubs organized with simple location groups, then assign boards into them.</div>
+      </div>
+      <div class="grid-4">
+        <div>
+          <label for="new-site-name">New Site Name</label>
+          <input id="new-site-name" placeholder="Downtown Club">
+        </div>
+        <div style="display:flex; align-items:end;">
+          <button id="create-site-btn">Create Site</button>
+        </div>
+        <div style="grid-column: span 2;">
+          <label for="known-sites-preview">Current Sites</label>
+          <input id="known-sites-preview" value="Load Devices to list sites" disabled>
+        </div>
+      </div>
+      <div id="site-status" class="status">Create a site first if you want boards grouped somewhere other than the default Main Site.</div>
+    </section>
+
+    <section class="card" style="margin-bottom:20px;">
+      <div class="toolbar">
         <h2>Board Onboarding</h2>
         <div class="muted">Create a relay board manually, or claim one from the discovered list below if it already connected to MQTT.</div>
       </div>
@@ -355,6 +376,12 @@ function consoleHtml() {
         <div>
           <label for="new-board-device-key">Device Key</label>
           <input id="new-board-device-key" placeholder="Optional, defaults to MQTT hostname">
+        </div>
+        <div>
+          <label for="new-board-site">Site</label>
+          <select id="new-board-site">
+            <option value="">Default site</option>
+          </select>
         </div>
         <div>
           <label for="new-board-channels">Channel Count</label>
@@ -414,7 +441,8 @@ function consoleHtml() {
       serviceToken: localStorage.getItem("solace_service_token") || "",
       outputs: [],
       devices: [],
-      discoveredBoards: []
+      discoveredBoards: [],
+      sites: []
     };
 
     const authStatus = document.getElementById("auth-status");
@@ -425,13 +453,25 @@ function consoleHtml() {
     const outputsStatus = document.getElementById("outputs-status");
     const deviceSections = document.getElementById("device-sections");
     const serviceTokenInput = document.getElementById("service-token");
+    const siteStatus = document.getElementById("site-status");
     const boardSearchInput = document.getElementById("board-search");
     const siteFilterInput = document.getElementById("site-filter");
     const availabilityFilterInput = document.getElementById("availability-filter");
     const boardSummary = document.getElementById("board-summary");
+    const newBoardSiteInput = document.getElementById("new-board-site");
+    const knownSitesPreview = document.getElementById("known-sites-preview");
 
     if (serviceTokenInput instanceof HTMLInputElement) {
       serviceTokenInput.value = state.serviceToken;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
     }
 
     function setStatus(node, message, kind) {
@@ -487,6 +527,46 @@ function consoleHtml() {
       if (siteNames.includes(currentValue)) {
         siteFilterInput.value = currentValue;
       }
+    }
+
+    function formatSiteLabel(site) {
+      return site.customerName ? site.name + " (" + site.customerName + ")" : site.name;
+    }
+
+    function siteOptionsMarkup(selectedValue, placeholderLabel) {
+      const options = [];
+      if (placeholderLabel) {
+        options.push('<option value="">' + escapeHtml(placeholderLabel) + '</option>');
+      }
+
+      for (const site of state.sites) {
+        const selected = selectedValue === site.id ? " selected" : "";
+        options.push('<option value="' + escapeHtml(site.id) + '"' + selected + '>' + escapeHtml(formatSiteLabel(site)) + '</option>');
+      }
+
+      return options.join("");
+    }
+
+    function refreshKnownSitesPreview() {
+      if (!(knownSitesPreview instanceof HTMLInputElement)) {
+        return;
+      }
+
+      knownSitesPreview.value = state.sites.length
+        ? state.sites.map((site) => formatSiteLabel(site)).join(" | ")
+        : "No sites yet";
+    }
+
+    function refreshSiteSelectors() {
+      if (newBoardSiteInput instanceof HTMLSelectElement) {
+        const currentValue = newBoardSiteInput.value;
+        newBoardSiteInput.innerHTML = siteOptionsMarkup(currentValue, "Default site");
+        if (state.sites.some((site) => site.id === currentValue)) {
+          newBoardSiteInput.value = currentValue;
+        }
+      }
+
+      refreshKnownSitesPreview();
     }
 
     function parseIsoTime(value) {
@@ -902,6 +982,10 @@ function consoleHtml() {
               <div style="min-width:320px;">
                 <label>Board Title</label>
                 <input data-device-field="display_name" data-device-id="\${device.id}" value="\${device.displayName || ""}" placeholder="Front Gate Board">
+                <label style="margin-top:10px;">Site</label>
+                <select data-device-field="site_id" data-device-id="\${device.id}">
+                  \${siteOptionsMarkup(device.siteId || "", "Unassigned")}
+                </select>
                 <div class="actions" style="margin-top:10px; align-items:center;">
                   <label class="toggle-line">
                     <input type="checkbox" data-device-field="desired_enabled" data-device-id="\${device.id}" \${device.desiredEnabled ? "checked" : ""}>
@@ -974,6 +1058,10 @@ function consoleHtml() {
               <input data-discovery-field="display_name" data-mqtt-hostname="\${board.mqttHostname}" value="">
               <label style="margin-top:10px;">Device Key</label>
               <input data-discovery-field="device_key" data-mqtt-hostname="\${board.mqttHostname}" value="\${board.mqttHostname}">
+              <label style="margin-top:10px;">Site</label>
+              <select data-discovery-field="site_id" data-mqtt-hostname="\${board.mqttHostname}">
+                \${siteOptionsMarkup("", "Default site")}
+              </select>
               <div class="actions" style="margin-top:10px;">
                 <button class="claim-board-btn" data-mqtt-hostname="\${board.mqttHostname}" data-channel-count="\${board.highestChannel || 8}">Claim Board</button>
               </div>
@@ -1000,7 +1088,26 @@ function consoleHtml() {
       setStatus(authStatus, "Admin login successful.", "ok");
     }
 
+    async function loadSites(silent = false) {
+      const response = await fetch("/v1/sites", {
+        headers: authHeaders(true),
+        cache: "no-store"
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to load sites");
+      }
+
+      state.sites = data.sites || [];
+      refreshSiteSelectors();
+
+      if (!silent) {
+        setStatus(siteStatus, "Loaded " + state.sites.length + " site(s).", "ok");
+      }
+    }
+
     async function loadDevices(silent = false) {
+      await loadSites(true);
       const response = await fetch("/v1/devices", {
         headers: authHeaders(true),
         cache: "no-store"
@@ -1054,9 +1161,11 @@ function consoleHtml() {
     }
 
     function collectDeviceValues(id) {
+      const siteSelect = document.querySelector('[data-device-field="site_id"][data-device-id="' + id + '"]');
       return {
         display_name: document.querySelector('[data-device-field="display_name"][data-device-id="' + id + '"]').value.trim(),
-        desired_enabled: document.querySelector('[data-device-field="desired_enabled"][data-device-id="' + id + '"]').checked
+        desired_enabled: document.querySelector('[data-device-field="desired_enabled"][data-device-id="' + id + '"]').checked,
+        site_id: siteSelect instanceof HTMLSelectElement ? (siteSelect.value || null) : undefined
       };
     }
 
@@ -1074,6 +1183,7 @@ function consoleHtml() {
       state.outputs = state.outputs.map((output) => output.deviceId === data.id
         ? { ...output, deviceDisplayName: data.displayName, deviceDesiredEnabled: data.desiredEnabled }
         : output);
+      refreshSiteSelectors();
       renderOutputs();
       setStatus(outputsStatus, "Saved board " + data.displayName + ".", "ok");
     }
@@ -1180,6 +1290,7 @@ function consoleHtml() {
       const mqttHostname = document.getElementById("new-board-hostname").value.trim();
       const deviceKey = document.getElementById("new-board-device-key").value.trim();
       const channelCountRaw = document.getElementById("new-board-channels").value.trim();
+      const siteId = newBoardSiteInput instanceof HTMLSelectElement ? (newBoardSiteInput.value || null) : null;
       const response = await fetch("/v1/provisioning/boards", {
         method: "POST",
         headers: authHeaders(true),
@@ -1187,6 +1298,7 @@ function consoleHtml() {
           display_name: displayName,
           mqtt_hostname: mqttHostname,
           device_key: deviceKey || undefined,
+          site_id: siteId,
           channel_count: channelCountRaw ? Number(channelCountRaw) : 8
         })
       });
@@ -1225,12 +1337,14 @@ function consoleHtml() {
     async function claimDiscoveredBoard(mqttHostname, channelCount) {
       const displayName = document.querySelector('[data-discovery-field="display_name"][data-mqtt-hostname="' + mqttHostname + '"]').value.trim();
       const deviceKey = document.querySelector('[data-discovery-field="device_key"][data-mqtt-hostname="' + mqttHostname + '"]').value.trim();
+      const siteSelect = document.querySelector('[data-discovery-field="site_id"][data-mqtt-hostname="' + mqttHostname + '"]');
       const response = await fetch("/v1/discovery/boards/" + encodeURIComponent(mqttHostname) + "/claim", {
         method: "POST",
         headers: authHeaders(true),
         body: JSON.stringify({
           display_name: displayName || undefined,
           device_key: deviceKey || undefined,
+          site_id: siteSelect instanceof HTMLSelectElement ? (siteSelect.value || null) : null,
           channel_count: channelCount ? Number(channelCount) : 8
         })
       });
@@ -1261,6 +1375,35 @@ function consoleHtml() {
         "ok"
       );
       setStatus(discoveryStatus, "Claimed discovered board " + mqttHostname + ".", "ok");
+    }
+
+    async function createSite() {
+      const siteNameInput = document.getElementById("new-site-name");
+      const siteName = siteNameInput instanceof HTMLInputElement ? siteNameInput.value.trim() : "";
+      const response = await fetch("/v1/sites", {
+        method: "POST",
+        headers: authHeaders(true),
+        body: JSON.stringify({ name: siteName })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to create site");
+      }
+
+      state.sites.push(data);
+      state.sites.sort((a, b) => formatSiteLabel(a).localeCompare(formatSiteLabel(b)));
+      refreshSiteSelectors();
+      renderDiscoveredBoards();
+      renderOutputs();
+
+      if (siteNameInput instanceof HTMLInputElement) {
+        siteNameInput.value = "";
+      }
+      if (newBoardSiteInput instanceof HTMLSelectElement) {
+        newBoardSiteInput.value = data.id;
+      }
+
+      setStatus(siteStatus, "Created site " + data.name + ".", "ok");
     }
 
     function maybeRotateEntityIdForProfileChange(id) {
@@ -1325,6 +1468,14 @@ function consoleHtml() {
         await createBoard();
       } catch (error) {
         setStatus(provisioningStatus, error.message, "error");
+      }
+    });
+
+    document.getElementById("create-site-btn").addEventListener("click", async () => {
+      try {
+        await createSite();
+      } catch (error) {
+        setStatus(siteStatus, error.message, "error");
       }
     });
 
