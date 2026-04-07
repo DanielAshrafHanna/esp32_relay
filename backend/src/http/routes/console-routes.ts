@@ -1309,6 +1309,21 @@ function consoleHtml() {
       setStatus(outputsStatus, "Loaded " + state.outputs.length + " output(s).", "ok");
     }
 
+    async function autoLoadConsole() {
+      if (!state.token) {
+        return;
+      }
+
+      setStatus(authStatus, "Restored saved session. Loading sites, boards, and outputs...", "ok");
+      try {
+        await loadDevices(true);
+        await loadOutputs();
+        setStatus(authStatus, "Saved session restored. Boards and outputs are up to date.", "ok");
+      } catch (error) {
+        setStatus(authStatus, error.message || "Failed to auto-load console data.", "error");
+      }
+    }
+
     function collectDeviceValues(id) {
       const siteSelect = document.querySelector('[data-device-field="site_id"][data-device-id="' + id + '"]');
       return {
@@ -1680,7 +1695,11 @@ function consoleHtml() {
       if (serviceTokenInput instanceof HTMLInputElement) {
         serviceTokenInput.value = state.serviceToken;
       }
-      setStatus(authStatus, state.token ? "Loaded admin JWT and saved service token from local storage." : "No saved admin session found.", state.token ? "ok" : "");
+      if (state.token) {
+        autoLoadConsole();
+      } else {
+        setStatus(authStatus, "No saved admin session found.", "");
+      }
     });
 
     document.getElementById("clear-session").addEventListener("click", () => {
@@ -1874,7 +1893,7 @@ function consoleHtml() {
     }
 
     if (state.token) {
-      setStatus(authStatus, "Admin JWT restored from local storage. Click Load Outputs when ready.", "ok");
+      autoLoadConsole();
     }
   </script>
 </body>
