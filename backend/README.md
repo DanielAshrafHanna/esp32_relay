@@ -49,7 +49,7 @@ The console lets you:
 - log in as admin
 - auto-load sites, boards, and outputs when a saved admin session exists
 - inspect all outputs
-- change a relay between `gate`, `light`, `cover`, and `generic relay`
+- change a relay between `gate`, `light`, `cover`, `switch`, and `generic relay`
 - edit webhook entity IDs
 - trigger compatibility webhooks from the browser when needed
 - copy ready-to-use compatibility webhook `curl` commands per relay row
@@ -400,7 +400,7 @@ For the easiest operator flow:
 3. If a saved admin session exists, the console now auto-loads sites, devices, and outputs.
 4. If needed, use `Load Devices` or `Load Outputs` as manual refresh buttons.
 5. Edit any row:
-   - `Profile` decides whether a relay behaves like a gate, light, cover, or generic relay
+   - `Profile` decides whether a relay behaves like a gate, light, cover, switch, or generic relay
    - `Entity` decides which webhook `entity_id` will target that relay
    - `Pulse` matters for gate or pulse-style behavior
 6. Click `Save` on that row
@@ -518,7 +518,21 @@ Default entity IDs for newly claimed boards now use the MQTT hostname namespace:
 
 - light profile: `light.dany.relay1`
 - gate profile: `lock.dany.relay1`
+- switch profile: `switch.dany.relay1`
 - generic relay profile: `switch.dany.relay1`
+
+`switch` and `generic relay` are intentionally different:
+
+- `generic relay`
+  - normal switch-style relay behavior
+  - `switch.turn_on` stays on
+  - no pulse override by default
+- `switch`
+  - switch-style entity and webhook family
+  - default entity like `switch.dany.relay1`
+  - `switch.turn_on` maps to a pulse by default
+  - keeps `turn_off` and `toggle` available
+  - uses `pulse_ms`, defaulting to `2000`
 
 Native discovery routes:
 

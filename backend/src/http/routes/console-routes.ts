@@ -354,7 +354,7 @@ function consoleHtml() {
     <div class="hero">
       <section class="card">
         <h1>Solace Relay Middleware</h1>
-        <p>Operator console for the cloud relay backend. Use this page to log in, inspect relay boards, switch each relay between <strong>gate</strong>, <strong>light</strong>, <strong>cover</strong>, or <strong>generic relay</strong>, and trigger actions through the same middleware the app uses.</p>
+        <p>Operator console for the cloud relay backend. Use this page to log in, inspect relay boards, switch each relay between <strong>gate</strong>, <strong>light</strong>, <strong>cover</strong>, <strong>switch</strong>, or <strong>generic relay</strong>, and trigger actions through the same middleware the app uses.</p>
         <span class="pill">Compatibility Webhooks</span>
         <span class="pill">Native API</span>
         <span class="pill">MQTT Gateway</span>
@@ -896,7 +896,7 @@ function consoleHtml() {
         return true;
       }
 
-      const profileTypes = ["generic_relay", "light", "gate", "cover"];
+      const profileTypes = ["generic_relay", "switch", "light", "gate", "cover"];
       if (normalized === output.compatEntityId) {
         return true;
       }
@@ -1115,6 +1115,7 @@ function consoleHtml() {
                   <select data-field="profile_type" data-id="\${output.id}">
                     <option value="generic_relay" \${output.profileType === "generic_relay" ? "selected" : ""}>generic relay</option>
                     <option value="light" \${output.profileType === "light" ? "selected" : ""}>light</option>
+                    <option value="switch" \${output.profileType === "switch" ? "selected" : ""}>switch</option>
                     <option value="gate" \${output.profileType === "gate" ? "selected" : ""}>gate</option>
                     <option value="cover" \${output.profileType === "cover" ? "selected" : ""}>cover</option>
                   </select>

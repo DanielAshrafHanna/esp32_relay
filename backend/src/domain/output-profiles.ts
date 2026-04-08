@@ -51,6 +51,16 @@ const PRESETS: Record<OutputProfileType, OutputProfilePreset> = {
       "cover.close_cover": "pulse",
     },
   },
+  switch: {
+    profileType: "switch",
+    compatDomain: "switch",
+    allowedActions: ["turn_on", "turn_off", "toggle", "pulse"],
+    pulseMs: 2000,
+    defaultState: "OFF",
+    serviceMap: {
+      "switch.turn_on": "pulse",
+    },
+  },
   generic_relay: {
     profileType: "generic_relay",
     compatDomain: "switch",

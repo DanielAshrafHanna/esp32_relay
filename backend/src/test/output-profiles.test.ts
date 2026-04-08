@@ -29,3 +29,17 @@ test("light profile resolves to light domain and direct state actions", () => {
   assert.equal(config.pulseMs, null);
   assert.deepEqual(config.allowedActions, ["turn_on", "turn_off", "toggle"]);
 });
+
+test("switch profile resolves to switch domain with pulse-enabled turn_on mapping", () => {
+  const config = resolveOutputProfileConfig({
+    deviceKey: "relay-demo-01",
+    channel: 7,
+    profileType: "switch",
+  });
+
+  assert.equal(config.compatDomain, "switch");
+  assert.equal(config.compatEntityId, "switch.relay_demo_01.relay7");
+  assert.equal(config.pulseMs, 2000);
+  assert.deepEqual(config.allowedActions, ["turn_on", "turn_off", "toggle", "pulse"]);
+  assert.equal(config.serviceMap["switch.turn_on"], "pulse");
+});

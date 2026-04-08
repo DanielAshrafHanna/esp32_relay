@@ -2,7 +2,7 @@ export type CustomerStatus = "active" | "suspended";
 export type UserStatus = "active" | "disabled";
 export type DeviceTransportVersion = "legacy_ha" | "solace_v1";
 export type DeviceAvailability = "unknown" | "online" | "offline";
-export type OutputProfileType = "light" | "gate" | "cover" | "generic_relay";
+export type OutputProfileType = "light" | "gate" | "cover" | "generic_relay" | "switch";
 export type OutputState = "ON" | "OFF" | "UNKNOWN";
 export type CommandStatus =
   | "queued"

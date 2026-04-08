@@ -51,3 +51,22 @@ test("reported state is normalized through invert_relay", () => {
   assert.equal(normalizeReportedState("ON", true), "OFF");
   assert.equal(normalizeReportedState("OFF", true), "ON");
 });
+
+test("switch.turn_on can map to a pulse plan through service overrides", () => {
+  const switchOutput: OutputRecord = {
+    ...baseOutput,
+    profileType: "switch",
+    compatDomain: "switch",
+    compatEntityId: "switch.dany.relay1",
+    allowedActions: ["turn_on", "turn_off", "toggle", "pulse"],
+    serviceMap: {
+      "switch.turn_on": "pulse",
+    },
+  };
+
+  const plan = buildCompatibilityPlan(switchOutput, "switch", "turn_on", "OFF");
+  assert.equal(plan.logicalAction, "pulse");
+  assert.equal(plan.steps.length, 2);
+  assert.equal(plan.steps[0].expectState, "ON");
+  assert.equal(plan.steps[1].expectState, "OFF");
+});
