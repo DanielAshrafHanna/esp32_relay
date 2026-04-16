@@ -6,12 +6,10 @@ let updateInterval;
 document.addEventListener('DOMContentLoaded', () => {
     loadRelays();
     loadWiFiInfo();
-    loadMQTTInfo();
     
     // Set up auto-refresh every 2 seconds
     updateInterval = setInterval(() => {
         loadRelays();
-        loadMQTTInfo();
         loadWiFiInfo();  // Also refresh uptime
     }, 2000);
     
@@ -148,29 +146,9 @@ function updateSignalStrength(rssi) {
     }
 }
 
-// Load MQTT information
-async function loadMQTTInfo() {
-    try {
-        const response = await fetch('/api/mqtt');
-        const data = await response.json();
-        
-        // Update header status
-        const statusBadge = document.getElementById('mqtt-status');
-        statusBadge.textContent = data.connected ? 'Connected' : 'Disconnected';
-        statusBadge.className = `status-badge ${data.connected ? 'connected' : 'disconnected'}`;
-        
-        // Update info section
-        document.getElementById('mqtt-server').textContent = data.server || 'Not configured';
-        document.getElementById('mqtt-port').textContent = data.port || '--';
-        document.getElementById('mqtt-connected').textContent = data.connected ? 'Connected' : 'Disconnected';
-    } catch (error) {
-        console.error('Error loading MQTT info:', error);
-    }
-}
-
 // Reset configuration
 async function resetConfig() {
-    if (!confirm('Are you sure you want to reset WiFi and MQTT configuration? The device will restart.')) {
+    if (!confirm('Are you sure you want to reset WiFi configuration? The device will restart.')) {
         return;
     }
     

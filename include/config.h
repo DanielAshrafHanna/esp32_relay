@@ -6,11 +6,6 @@
 #define AP_NAME "ESP32-RF-Setup"
 #define AP_PASSWORD "12345678"
 
-// MQTT Configuration
-#define MQTT_PORT 1883
-#define MQTT_TOPIC_PREFIX "homeassistant/switch/"
-#define MQTT_DISCOVERY_PREFIX "homeassistant"
-
 // Webhook Configuration
 #define DEFAULT_WEBHOOK_URL "https://trash-monitor-web.vercel.app/api/bin-event"
 #define DEFAULT_WEBHOOK_SECRET ""

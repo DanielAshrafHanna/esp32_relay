@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
-#include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
@@ -10,21 +9,20 @@
 #include <RCSwitch.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include "config.h"
 
 // Global objects
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
 AsyncWebServer server(WEB_SERVER_PORT);
 Preferences preferences;
 RCSwitch rfReceiver = RCSwitch();
+WiFiClient webhookClient;
+WiFiClientSecure secureWebhookClient;
 
-// MQTT settings (hardcoded defaults)
-char mqtt_server[40] = "192.168.68.100";
-char mqtt_port[6] = "1883";
-char mqtt_user[40] = "solacemqtt";
-char mqtt_password[40] = "solacepass";
-char mqtt_hostname[40] = "esp32-rf";  // Configurable MQTT hostname for topics
+// Device + webhook settings
+char device_id[40] = "esp32-rf";
 char webhook_url[160] = DEFAULT_WEBHOOK_URL;
 char webhook_secret[80] = DEFAULT_WEBHOOK_SECRET;
 char webhook_device_id[40] = "esp32-rf";
@@ -53,19 +51,11 @@ int rfLearningSlot = -1;        // Which slot we're learning for
 char pendingRFName[32] = "";    // Name for code being learned
 char pendingRFState[8] = "FULL";
 
-// MQTT Discovery management
-bool discoveryPublished = false;  // Only publish once per boot unless manually triggered
-unsigned long lastMQTTAttempt = 0;
-
-// MQTT Smart Reconnection with Exponential Backoff
-int mqttReconnectAttempts = 0;
-bool mqttCredentialError = false;  // Stop retrying on credential errors
-
 // WiFi reconnection management
 unsigned long lastWiFiCheck = 0;
 unsigned long lastReconnectAttempt = 0;
-const unsigned long WIFI_CHECK_INTERVAL = 5000;      // Check WiFi every 5 seconds (fast detection)
-const unsigned long RECONNECT_TIMEOUT = 10000;       // 10 second timeout per reconnection attempt
+const unsigned long WIFI_CHECK_INTERVAL = 2000;      // Check WiFi every 2 seconds
+const unsigned long RECONNECT_TIMEOUT = 15000;       // 15 second timeout per attempt
 bool apModeActive = false;
 bool wifiConnected = false;
 bool wifiReconnecting = false;
@@ -76,9 +66,22 @@ WiFiEventId_t wifiDisconnectHandler;
 
 // WiFi Smart Reconnection with Fast/Slow phases
 int wifiReconnectAttempts = 0;
-const int WIFI_FAST_ATTEMPTS = 6;                    // 6 fast attempts before AP mode (~1 minute)
-const unsigned long WIFI_FAST_INTERVAL = 10000;      // 10 seconds between fast attempts
-const unsigned long WIFI_SLOW_INTERVAL = 60000;      // 60 seconds between attempts in AP mode
+const int WIFI_FAST_ATTEMPTS = 12;                   // 12 fast attempts before AP mode
+const unsigned long WIFI_FAST_INTERVAL = 5000;       // 5 seconds between fast attempts
+const unsigned long WIFI_SLOW_INTERVAL = 30000;      // 30 seconds between attempts in AP mode
+
+struct WebhookEvent {
+    char state[8];
+    int slot;
+    unsigned long queuedAt;
+};
+
+QueueHandle_t webhookQueue = nullptr;
+TaskHandle_t webhookTaskHandle = nullptr;
+const int WEBHOOK_QUEUE_SIZE = 8;
+const unsigned long WEBHOOK_MAX_EVENT_AGE_MS = 7000;
+volatile int lastWebhookStateSentCode = 0;
+volatile int lastWebhookStateQueuedCode = 0;
 
 // Function declarations
 void checkWiFiConnection();
@@ -87,18 +90,19 @@ void setupWiFi();
 void setupWiFiEvents();
 void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info);
 void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info);
-void setupMQTT();
 void setupWebServer();
 void setupMDNS();
-unsigned long getMqttRetryInterval();
-void reconnectMQTT();
-void publishDiscovery();
+void beginStationReconnect();
 void saveConfigCallback();
 void restoreSettings();
+void setupWebhookSender();
+void webhookSenderTask(void* parameter);
 void setupRFReceiver();
 void checkRFSignal();
 void publishRFTriggerState(int slot);
 bool sendWebhookState(const char* state, int slot);
+bool sendWebhookStateNow(const char* state, int slot);
+int stateToCode(const char* state);
 void saveRFCodes();
 void restoreRFCodes();
 int addRFCode(const char* name, const char* state, unsigned long code, unsigned int bitLength, unsigned int protocol);
@@ -121,7 +125,7 @@ String normalizeDeviceId(String value) {
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("\n\n=== ESP32 RF-to-MQTT Bridge ===");
+    Serial.println("\n\n=== ESP32 RF Webhook Bridge ===");
     
     // Restore saved settings and RF codes
     restoreSettings();
@@ -141,11 +145,11 @@ void setup() {
     // Setup mDNS
     setupMDNS();
     
-    // Setup MQTT
-    setupMQTT();
-    
     // Setup Web Server
     setupWebServer();
+
+    // Setup async webhook sender
+    setupWebhookSender();
     
     // Setup RF Receiver
     setupRFReceiver();
@@ -156,7 +160,8 @@ void setup() {
     Serial.printf("IP Address: %s\n", WiFi.localIP().toString().c_str());
     Serial.printf("mDNS URL: http://%s.local\n", MDNS_HOSTNAME);
     Serial.printf("Admin Page: http://%s.local/solaceadmin\n", MDNS_HOSTNAME);
-    Serial.printf("MQTT Server: %s:%s\n", mqtt_server, mqtt_port);
+    Serial.printf("Device ID: %s\n", device_id);
+    Serial.printf("Webhook URL: %s\n", webhook_url);
     Serial.printf("RF Codes: %d learned\n", rfCodeCount);
     Serial.println("======================\n");
 }
@@ -164,15 +169,7 @@ void setup() {
 void loop() {
     // Check WiFi connection status
     checkWiFiConnection();
-    
-    // Reconnect to MQTT if needed (only if WiFi is connected)
-    if (WiFi.status() == WL_CONNECTED) {
-        if (!mqttClient.connected()) {
-            reconnectMQTT();
-        }
-        mqttClient.loop();
-    }
-    
+
     // Check RF signals
     checkRFSignal();
     
@@ -191,6 +188,7 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     // If we were in AP mode, we can disable it now
     if (apModeActive) {
         Serial.println("[WiFi] Disabling AP mode - connected to network");
+        WiFi.softAPdisconnect(true);
         apModeActive = false;
         WiFi.mode(WIFI_STA);  // Switch back to station-only mode
     }
@@ -219,6 +217,8 @@ void onWiFiConnect(WiFiEvent_t event, WiFiEventInfo_t info) {
 void onWiFiDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.println("[WiFi] Event: Disconnected!");
     wifiConnected = false;
+    wifiReconnecting = false;
+    lastReconnectAttempt = 0;
 }
 
 void setupWiFiEvents() {
@@ -260,24 +260,17 @@ void checkWiFiConnection() {
     }
     
     if (apModeActive) {
-        int clientCount = WiFi.softAPgetStationNum();
-        
-        if (clientCount > 0) {
-            lastReconnectAttempt = currentMillis;
-            return;
-        }
-        
         if (currentMillis - lastReconnectAttempt < WIFI_SLOW_INTERVAL) {
             return;
         }
         
-        Serial.println("[WiFi] AP mode - attempting reconnect (every 60s)...");
+        Serial.println("[WiFi] AP mode - attempting STA reconnect...");
         lastReconnectAttempt = currentMillis;
         wifiReconnecting = true;
         reconnectStartTime = currentMillis;
         
         WiFi.mode(WIFI_AP_STA);
-        WiFi.begin();
+        beginStationReconnect();
         return;
     }
     
@@ -295,10 +288,14 @@ void checkWiFiConnection() {
     wifiReconnecting = true;
     reconnectStartTime = currentMillis;
     
-    WiFi.begin();
+    beginStationReconnect();
 }
 
 void startAPMode() {
+    if (apModeActive) {
+        return;
+    }
+
     Serial.println("[WiFi] Starting AP mode...");
     
     WiFi.mode(WIFI_AP_STA);
@@ -324,22 +321,20 @@ void setupWiFi() {
     WiFiManager wifiManager;
     
     shouldSaveConfig = false;
-    
-    WiFiManagerParameter custom_mqtt_server("server", "MQTT Server IP", mqtt_server, 40);
-    WiFiManagerParameter custom_mqtt_port("port", "MQTT Port", mqtt_port, 6);
-    WiFiManagerParameter custom_mqtt_user("user", "MQTT Username", mqtt_user, 40);
-    WiFiManagerParameter custom_mqtt_password("password", "MQTT Password", mqtt_password, 40);
-    WiFiManagerParameter custom_mqtt_hostname("hostname", "MQTT Hostname (for HA)", mqtt_hostname, 40);
+
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.persistent(false);
+    WiFi.setSleep(false);
+
+    WiFiManagerParameter custom_device_id("device_id", "Device ID", device_id, 40);
     WiFiManagerParameter custom_webhook_url("webhook_url", "Webhook URL", webhook_url, 160);
     WiFiManagerParameter custom_webhook_secret("webhook_secret", "Webhook Secret", webhook_secret, 80);
     WiFiManagerParameter custom_webhook_device_id("webhook_device_id", "Webhook Device ID", webhook_device_id, 40);
     WiFiManagerParameter custom_webhook_bin_id("webhook_bin_id", "Webhook Bin ID", webhook_bin_id, 40);
+
     
-    wifiManager.addParameter(&custom_mqtt_server);
-    wifiManager.addParameter(&custom_mqtt_port);
-    wifiManager.addParameter(&custom_mqtt_user);
-    wifiManager.addParameter(&custom_mqtt_password);
-    wifiManager.addParameter(&custom_mqtt_hostname);
+    wifiManager.addParameter(&custom_device_id);
     wifiManager.addParameter(&custom_webhook_url);
     wifiManager.addParameter(&custom_webhook_secret);
     wifiManager.addParameter(&custom_webhook_device_id);
@@ -347,10 +342,11 @@ void setupWiFi() {
     
     wifiManager.setSaveConfigCallback(saveConfigCallback);
     wifiManager.setConfigPortalTimeout(PORTAL_TIMEOUT);
+    wifiManager.setConnectTimeout(20);
     
     if (!wifiManager.autoConnect(AP_NAME, AP_PASSWORD)) {
         Serial.println("[WiFi] Failed to connect - entering AP mode (no reboot)");
-        Serial.println("[WiFi] Will retry connection every 60 seconds in background");
+        Serial.println("[WiFi] Will retry connection every 30 seconds in background");
         startAPMode();
     } else {
         Serial.println("WiFi connected!");
@@ -359,68 +355,49 @@ void setupWiFi() {
         
         wifiConnected = true;
         apModeActive = false;
-        
-        WiFi.setAutoReconnect(false);
-        Serial.println("[WiFi] Auto-reconnect disabled (using custom reconnection logic)");
     }
     
     if (shouldSaveConfig) {
-        Serial.println("[WiFiManager] Save triggered - reading new MQTT settings...");
-        
-        String new_server = custom_mqtt_server.getValue();
-        String new_port = custom_mqtt_port.getValue();
-        String new_user = custom_mqtt_user.getValue();
-        String new_password = custom_mqtt_password.getValue();
-        String new_hostname = custom_mqtt_hostname.getValue();
+        Serial.println("[WiFiManager] Save triggered - reading new settings...");
+
+        String new_device_id = normalizeDeviceId(custom_device_id.getValue());
         String new_webhook_url = custom_webhook_url.getValue();
         String new_webhook_secret = custom_webhook_secret.getValue();
         String new_webhook_device_id = normalizeDeviceId(custom_webhook_device_id.getValue());
         String new_webhook_bin_id = custom_webhook_bin_id.getValue();
         
-        if (new_hostname.length() == 0) {
-            new_hostname = "esp32-rf";
+        if (new_device_id.length() == 0) {
+            new_device_id = "esp32-rf";
         }
         if (new_webhook_url.length() == 0) {
             new_webhook_url = DEFAULT_WEBHOOK_URL;
         }
         if (new_webhook_device_id.length() == 0) {
-            new_webhook_device_id = normalizeDeviceId(new_hostname);
+            new_webhook_device_id = new_device_id;
         }
         
         preferences.begin("rf-bridge", false);
-        preferences.putString("mqtt_server", new_server);
-        preferences.putString("mqtt_port", new_port);
-        preferences.putString("mqtt_user", new_user);
-        preferences.putString("mqtt_pass", new_password);
-        preferences.putString("mqtt_hostname", new_hostname);
+        preferences.putString("device_id", new_device_id);
         preferences.putString("webhook_url", new_webhook_url);
         preferences.putString("webhook_secret", new_webhook_secret);
         preferences.putString("webhook_device_id", new_webhook_device_id);
         preferences.putString("webhook_bin_id", new_webhook_bin_id);
         preferences.end();
         
-        new_server.toCharArray(mqtt_server, 40);
-        new_port.toCharArray(mqtt_port, 6);
-        new_user.toCharArray(mqtt_user, 40);
-        new_password.toCharArray(mqtt_password, 40);
-        new_hostname.toCharArray(mqtt_hostname, 40);
+        new_device_id.toCharArray(device_id, 40);
         new_webhook_url.toCharArray(webhook_url, 160);
         new_webhook_secret.toCharArray(webhook_secret, 80);
         new_webhook_device_id.toCharArray(webhook_device_id, 40);
         new_webhook_bin_id.toCharArray(webhook_bin_id, 40);
         
-        Serial.println("[WiFiManager] MQTT settings saved:");
-        Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
-        Serial.printf("  User: %s\n", mqtt_user);
-        Serial.printf("  Hostname: %s\n", mqtt_hostname);
+        Serial.println("[WiFiManager] Settings saved:");
+        Serial.printf("  Device ID: %s\n", device_id);
         Serial.printf("  Webhook URL: %s\n", webhook_url);
         Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
         Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
     } else {
-        Serial.println("[WiFiManager] Using existing MQTT settings:");
-        Serial.printf("  Server: %s:%s\n", mqtt_server, mqtt_port);
-        Serial.printf("  User: %s\n", mqtt_user);
-        Serial.printf("  Hostname: %s\n", mqtt_hostname);
+        Serial.println("[WiFiManager] Using existing settings:");
+        Serial.printf("  Device ID: %s\n", device_id);
         Serial.printf("  Webhook URL: %s\n", webhook_url);
         Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
         Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
@@ -447,159 +424,12 @@ void setupMDNS() {
     }
 }
 
-void setupMQTT() {
-    if (strlen(mqtt_server) > 0) {
-        mqttClient.setServer(mqtt_server, atoi(mqtt_port));
-        mqttClient.setBufferSize(1024);
-        reconnectMQTT();
-    } else {
-        Serial.println("MQTT server not configured");
-    }
-}
-
-unsigned long getMqttRetryInterval() {
-    if (mqttReconnectAttempts < 3) {
-        return 10000;
-    } else if (mqttReconnectAttempts < 6) {
-        return 30000;
-    } else if (mqttReconnectAttempts < 10) {
-        return 60000;
-    } else {
-        return 300000;
-    }
-}
-
-void reconnectMQTT() {
-    if (mqttCredentialError) {
-        return;
-    }
-    
-    unsigned long retryInterval = getMqttRetryInterval();
-    
-    if (millis() - lastMQTTAttempt < retryInterval) {
-        return;
-    }
-    lastMQTTAttempt = millis();
-    
-    if (strlen(mqtt_server) == 0) {
-        return;
-    }
-    
-    mqttReconnectAttempts++;
-    Serial.printf("[MQTT] Connection attempt %d (next retry in %lus if fails)...\n", 
-                 mqttReconnectAttempts, getMqttRetryInterval() / 1000);
-    
-    String clientId = String(DEVICE_NAME) + "-" + String(ESP.getEfuseMac(), HEX);
-    String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
-    
-    yield();
-    
-    bool connected;
-    if (strlen(mqtt_user) > 0) {
-        connected = mqttClient.connect(clientId.c_str(), mqtt_user, mqtt_password, 
-                                       availTopic.c_str(), 0, true, "offline");
-    } else {
-        connected = mqttClient.connect(clientId.c_str(), 
-                                       availTopic.c_str(), 0, true, "offline");
-    }
-    
-    yield();
-    
-    if (connected) {
-        Serial.println("[MQTT] Connected!");
-        mqttReconnectAttempts = 0;
-        
-        mqttClient.publish(availTopic.c_str(), "online", true);
-        
-        if (!discoveryPublished) {
-            Serial.println("[MQTT] First connection - publishing RF discovery...");
-            publishDiscovery();
-            discoveryPublished = true;
-            Serial.println("[MQTT] RF discovery published");
-        } else {
-            Serial.println("[MQTT] Reconnected - republishing availability");
-        }
-    } else {
-        int rc = mqttClient.state();
-        Serial.printf("[MQTT] Failed, rc=%d ", rc);
-        
-        switch (rc) {
-            case -4: Serial.println("(Connection timeout)"); break;
-            case -3: Serial.println("(Connection lost)"); break;
-            case -2: Serial.println("(Connect failed)"); break;
-            case -1: Serial.println("(Disconnected)"); break;
-            case 1:  Serial.println("(Bad protocol)"); break;
-            case 2:  Serial.println("(Bad client ID)"); break;
-            case 3:  Serial.println("(Server unavailable)"); break;
-            case 4:  Serial.println("(Bad credentials)"); break;
-            case 5:  Serial.println("(Not authorized)"); break;
-            default: Serial.println("(Unknown error)"); break;
-        }
-        
-        if (rc == 4 || rc == 5) {
-            Serial.println("[MQTT] ERROR: Credential/authorization error detected");
-            Serial.println("[MQTT] Stopping reconnection attempts until settings are updated");
-            mqttCredentialError = true;
-        }
-        
-        yield();
-        delay(10);
-    }
-}
-
-void publishDiscovery() {
-    if (!mqttClient.connected()) return;
-    
-    String availTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/availability";
-    
-    // Publish RF Trigger discovery for each learned code (binary sensors)
-    for (int i = 0; i < MAX_RF_CODES; i++) {
-        if (rfCodes[i].active && rfCodes[i].code != 0) {
-            StaticJsonDocument<1024> doc;
-            
-            String entityId = String(rfCodes[i].name);
-            entityId.toLowerCase();
-            entityId.replace(" ", "_");
-            entityId.replace("-", "_");
-            
-            String uniqueId = String(mqtt_hostname) + "_rf_" + entityId;
-            String stateTopic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(i) + "/state";
-            String configTopic = String(MQTT_DISCOVERY_PREFIX) + "/binary_sensor/" + mqtt_hostname + "_rf_" + String(i) + "/config";
-            
-            doc["name"] = String("RF ") + rfCodes[i].name;
-            doc["unique_id"] = uniqueId;
-            doc["state_topic"] = stateTopic;
-            doc["availability_topic"] = availTopic;
-            doc["payload_on"] = "ON";
-            doc["payload_off"] = "OFF";
-            doc["device_class"] = "motion";
-            doc["icon"] = "mdi:remote";
-            doc["off_delay"] = 2;
-            
-            JsonObject device = doc["device"].to<JsonObject>();
-            device["identifiers"][0] = mqtt_hostname;
-            device["name"] = DEVICE_NAME;
-            device["manufacturer"] = "ESP32";
-            device["model"] = "RF-to-MQTT Bridge";
-            device["sw_version"] = "2.0.1";
-            
-            String output;
-            serializeJson(doc, output);
-            
-            mqttClient.publish(configTopic.c_str(), output.c_str(), true);
-            
-            yield();
-            mqttClient.loop();
-            delay(50);
-            
-            Serial.printf("[MQTT] RF '%s' discovery published (slot %d)\n", rfCodes[i].name, i);
-        }
-    }
-    
-    if (rfCodeCount > 0) {
-        Serial.printf("[MQTT] Published %d RF trigger entities\n", rfCodeCount);
-    } else {
-        Serial.println("[MQTT] No RF codes learned yet - use web interface to learn codes");
+void beginStationReconnect() {
+    bool reconnectIssued = WiFi.reconnect();
+    if (!reconnectIssued) {
+        WiFi.disconnect(false, false);
+        delay(50);
+        WiFi.begin();
     }
 }
 
@@ -612,18 +442,6 @@ void setupWebServer() {
         doc["rssi"] = WiFi.RSSI();
         doc["hostname"] = String(MDNS_HOSTNAME) + ".local";
         doc["uptime"] = millis() / 1000;
-        
-        String output;
-        serializeJson(doc, output);
-        request->send(200, "application/json", output);
-    });
-    
-    // API: Get MQTT info
-    server.on("/api/mqtt", HTTP_GET, [](AsyncWebServerRequest *request) {
-        StaticJsonDocument<256> doc;
-        doc["server"] = mqtt_server;
-        doc["port"] = atoi(mqtt_port);
-        doc["connected"] = mqttClient.connected();
         
         String output;
         serializeJson(doc, output);
@@ -713,11 +531,7 @@ void setupWebServer() {
         }
         
         StaticJsonDocument<512> doc;
-        doc["mqtt_server"] = mqtt_server;
-        doc["mqtt_port"] = atoi(mqtt_port);
-        doc["mqtt_user"] = mqtt_user;
-        doc["mqtt_hostname"] = mqtt_hostname;
-        doc["mqtt_password"] = "••••••••";
+        doc["device_id"] = device_id;
         doc["webhook_url"] = webhook_url;
         doc["webhook_device_id"] = webhook_device_id;
         doc["webhook_bin_id"] = webhook_bin_id;
@@ -729,8 +543,8 @@ void setupWebServer() {
         request->send(200, "application/json", output);
     });
     
-    // API: Save MQTT configuration
-    server.on("/api/admin/mqtt", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
+    // API: Save webhook/device configuration
+    server.on("/api/admin/webhook", HTTP_POST, [](AsyncWebServerRequest *request) {}, NULL,
         [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
             if (!request->authenticate("admin", ADMIN_PASSWORD)) {
                 return request->requestAuthentication();
@@ -744,67 +558,43 @@ void setupWebServer() {
                 return;
             }
             
-            String new_server = doc["mqtt_server"].as<String>();
-            int new_port = doc["mqtt_port"];
-            String new_user = doc["mqtt_user"].as<String>();
-            String new_password = doc["mqtt_password"].as<String>();
-            String new_hostname = doc["mqtt_hostname"].as<String>();
+            String new_device_id = normalizeDeviceId(doc["device_id"].as<String>());
             String new_webhook_url = doc["webhook_url"].as<String>();
             String new_webhook_secret = doc["webhook_secret"].as<String>();
             String new_webhook_device_id = normalizeDeviceId(doc["webhook_device_id"].as<String>());
             String new_webhook_bin_id = doc["webhook_bin_id"].as<String>();
             
-            if (new_server.length() == 0 || new_port < 1 || new_port > 65535) {
-                request->send(400, "application/json", "{\"error\":\"Invalid MQTT settings\"}");
-                return;
-            }
-            
-            if (new_hostname.length() == 0 || new_hostname.length() > 39) {
-                new_hostname = "esp32-rf";
+            if (new_device_id.length() == 0 || new_device_id.length() > 39) {
+                new_device_id = "esp32-rf";
             }
             if (new_webhook_url.length() == 0 || new_webhook_url.length() > 159) {
                 new_webhook_url = DEFAULT_WEBHOOK_URL;
             }
             if (new_webhook_device_id.length() == 0 || new_webhook_device_id.length() > 39) {
-                new_webhook_device_id = normalizeDeviceId(new_hostname);
+                new_webhook_device_id = new_device_id;
             }
             
             preferences.begin("rf-bridge", false);
-            preferences.putString("mqtt_server", new_server);
-            preferences.putString("mqtt_port", String(new_port));
-            preferences.putString("mqtt_user", new_user);
-            preferences.putString("mqtt_hostname", new_hostname);
+            preferences.putString("device_id", new_device_id);
             preferences.putString("webhook_url", new_webhook_url);
             preferences.putString("webhook_device_id", new_webhook_device_id);
             preferences.putString("webhook_bin_id", new_webhook_bin_id);
-            
-            if (new_password != "••••••••") {
-                preferences.putString("mqtt_pass", new_password);
-            }
             
             if (new_webhook_secret != "********") {
                 preferences.putString("webhook_secret", new_webhook_secret);
             }
             preferences.end();
             
-            new_server.toCharArray(mqtt_server, 40);
-            String(new_port).toCharArray(mqtt_port, 6);
-            new_user.toCharArray(mqtt_user, 40);
-            new_hostname.toCharArray(mqtt_hostname, 40);
+            new_device_id.toCharArray(device_id, 40);
             new_webhook_url.toCharArray(webhook_url, 160);
             new_webhook_device_id.toCharArray(webhook_device_id, 40);
             new_webhook_bin_id.toCharArray(webhook_bin_id, 40);
-            if (new_password != "••••••••") {
-                new_password.toCharArray(mqtt_password, 40);
-            }
             
             if (new_webhook_secret != "********") {
                 new_webhook_secret.toCharArray(webhook_secret, 80);
             }
-            Serial.println("[Admin] MQTT settings updated");
-            Serial.printf("  Server: %s:%d\n", mqtt_server, new_port);
-            Serial.printf("  User: %s\n", mqtt_user);
-            Serial.printf("  Hostname: %s\n", mqtt_hostname);
+            Serial.println("[Admin] Device/webhook settings updated");
+            Serial.printf("  Device ID: %s\n", device_id);
             Serial.printf("  Webhook URL: %s\n", webhook_url);
             Serial.printf("  Webhook Device ID: %s\n", webhook_device_id);
             Serial.printf("  Webhook Bin ID: %s\n", webhook_bin_id);
@@ -922,17 +712,6 @@ void setupWebServer() {
         request->send(200, "application/json", "{\"success\":true,\"message\":\"All RF codes cleared\"}");
     });
     
-    // API: Force MQTT discovery republish
-    server.on("/api/mqtt/rediscover", HTTP_POST, [](AsyncWebServerRequest *request) {
-        if (mqttClient.connected()) {
-            Serial.println("[API] Manual discovery republish requested...");
-            publishDiscovery();
-            request->send(200, "application/json", "{\"success\":true,\"message\":\"Discovery republished\"}");
-        } else {
-            request->send(503, "application/json", "{\"error\":\"MQTT not connected\"}");
-        }
-    });
-    
     // API: Restart mDNS
     server.on("/api/mdns/restart", HTTP_POST, [](AsyncWebServerRequest *request) {
         Serial.println("[API] Restarting mDNS service...");
@@ -986,36 +765,24 @@ void restoreSettings() {
     preferences.begin("rf-bridge", true);
     
     Serial.println("[Storage] Restoring settings...");
-    
-    String saved_server = preferences.getString("mqtt_server", "");
-    if (saved_server.length() > 0) {
-        saved_server.toCharArray(mqtt_server, 40);
-        String saved_port = preferences.getString("mqtt_port", "1883");
-        saved_port.toCharArray(mqtt_port, 6);
-        String saved_user = preferences.getString("mqtt_user", "");
-        saved_user.toCharArray(mqtt_user, 40);
-        String saved_pass = preferences.getString("mqtt_pass", "");
-        saved_pass.toCharArray(mqtt_password, 40);
-        String saved_hostname = preferences.getString("mqtt_hostname", "esp32-rf");
-        saved_hostname.toCharArray(mqtt_hostname, 40);
-        String saved_webhook_url = preferences.getString("webhook_url", DEFAULT_WEBHOOK_URL);
-        saved_webhook_url.toCharArray(webhook_url, 160);
-        String saved_webhook_secret = preferences.getString("webhook_secret", DEFAULT_WEBHOOK_SECRET);
-        saved_webhook_secret.toCharArray(webhook_secret, 80);
-        String saved_webhook_device_id = normalizeDeviceId(preferences.getString("webhook_device_id", saved_hostname));
-        saved_webhook_device_id.toCharArray(webhook_device_id, 40);
-        String saved_webhook_bin_id = preferences.getString("webhook_bin_id", "");
-        saved_webhook_bin_id.toCharArray(webhook_bin_id, 40);
-        Serial.println("[Storage] MQTT settings loaded from preferences");
-        Serial.printf("[Storage] MQTT hostname: %s\n", mqtt_hostname);
-        Serial.printf("[Storage] Webhook device ID: %s\n", webhook_device_id);
-        Serial.printf("[Storage] Webhook bin ID: %s\n", webhook_bin_id);
-    } else {
-        Serial.println("[Storage] Using hardcoded MQTT settings");
-        String normalizedFallbackDeviceId = normalizeDeviceId(String(mqtt_hostname));
-        normalizedFallbackDeviceId.toCharArray(webhook_device_id, sizeof(webhook_device_id));
-        webhook_device_id[sizeof(webhook_device_id) - 1] = '\0';
-    }
+
+    String saved_device_id = normalizeDeviceId(preferences.getString("device_id", "esp32-rf"));
+    saved_device_id.toCharArray(device_id, sizeof(device_id));
+    device_id[sizeof(device_id) - 1] = '\0';
+
+    String saved_webhook_url = preferences.getString("webhook_url", DEFAULT_WEBHOOK_URL);
+    saved_webhook_url.toCharArray(webhook_url, 160);
+    String saved_webhook_secret = preferences.getString("webhook_secret", DEFAULT_WEBHOOK_SECRET);
+    saved_webhook_secret.toCharArray(webhook_secret, 80);
+    String saved_webhook_device_id = normalizeDeviceId(preferences.getString("webhook_device_id", saved_device_id));
+    saved_webhook_device_id.toCharArray(webhook_device_id, 40);
+    String saved_webhook_bin_id = preferences.getString("webhook_bin_id", "");
+    saved_webhook_bin_id.toCharArray(webhook_bin_id, 40);
+
+    Serial.println("[Storage] Device/webhook settings loaded from preferences");
+    Serial.printf("[Storage] Device ID: %s\n", device_id);
+    Serial.printf("[Storage] Webhook device ID: %s\n", webhook_device_id);
+    Serial.printf("[Storage] Webhook bin ID: %s\n", webhook_bin_id);
     
     preferences.end();
 }
@@ -1057,7 +824,6 @@ void checkRFSignal() {
             if (newSlot >= 0) {
                 Serial.printf("[RF] Code learned '%s' [%s]: %lu (bit: %d, protocol: %d) in slot %d\n", 
                              pendingRFName, pendingRFState, receivedCode, bitLength, protocol, newSlot);
-                Serial.println("[RF] Use /api/mqtt/rediscover to update HA entities, or reboot.");
             } else {
                 Serial.println("[RF] ERROR: Failed to add code (array full)");
             }
@@ -1112,30 +878,53 @@ void checkRFSignal() {
 
 void publishRFTriggerState(int slot) {
     if (slot < 0 || slot >= MAX_RF_CODES || !rfCodes[slot].active) return;
-    
-    String topic = String(MQTT_TOPIC_PREFIX) + mqtt_hostname + "/rf_" + String(slot) + "/state";
-    
-    if (mqttClient.connected()) {
-        mqttClient.publish(topic.c_str(), "ON", true);
-        Serial.printf("[MQTT] RF '%s' (slot %d): ON\n", rfCodes[slot].name, slot);
-    }
 
     sendWebhookState(rfCodes[slot].state, slot);
-    
-    unsigned long start = millis();
-    while (millis() - start < RF_TRIGGER_DURATION) {
-        mqttClient.loop();
-        yield();
-        delay(10);
-    }
-    
-    if (mqttClient.connected()) {
-        mqttClient.publish(topic.c_str(), "OFF", true);
-        Serial.printf("[MQTT] RF '%s' (slot %d): OFF\n", rfCodes[slot].name, slot);
-    }
 }
 
 bool sendWebhookState(const char* state, int slot) {
+    if (strlen(state) == 0) {
+        return false;
+    }
+
+    int stateCode = stateToCode(state);
+    if (stateCode > 0) {
+        if (stateCode == lastWebhookStateSentCode || stateCode == lastWebhookStateQueuedCode) {
+            Serial.printf("[Webhook] Skipped duplicate state '%s' (no state change)\n", state);
+            return true;
+        }
+    }
+
+    if (!webhookQueue) {
+        return sendWebhookStateNow(state, slot);
+    }
+
+    WebhookEvent event;
+    strncpy(event.state, state, sizeof(event.state) - 1);
+    event.state[sizeof(event.state) - 1] = '\0';
+    event.slot = slot;
+    event.queuedAt = millis();
+
+    if (xQueueSend(webhookQueue, &event, 0) == pdTRUE) {
+        if (stateCode > 0) {
+            lastWebhookStateQueuedCode = stateCode;
+        }
+        return true;
+    }
+
+    // Queue is full; drop oldest event and enqueue newest to keep latency low.
+    WebhookEvent dropped;
+    xQueueReceive(webhookQueue, &dropped, 0);
+    if (xQueueSend(webhookQueue, &event, 0) == pdTRUE) {
+        if (stateCode > 0) {
+            lastWebhookStateQueuedCode = stateCode;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool sendWebhookStateNow(const char* state, int slot) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[Webhook] Skipped - WiFi not connected");
         return false;
@@ -1146,7 +935,7 @@ bool sendWebhookState(const char* state, int slot) {
         return false;
     }
 
-    String payloadDeviceId = strlen(webhook_device_id) > 0 ? webhook_device_id : mqtt_hostname;
+    String payloadDeviceId = strlen(webhook_device_id) > 0 ? webhook_device_id : device_id;
     payloadDeviceId = normalizeDeviceId(payloadDeviceId);
     StaticJsonDocument<256> doc;
     doc["deviceId"] = payloadDeviceId;
@@ -1159,42 +948,104 @@ bool sendWebhookState(const char* state, int slot) {
     serializeJson(doc, payload);
 
     int httpCode = -1;
+    HTTPClient http;
+    // RF events are infrequent; avoid stale keep-alive sockets that can
+    // introduce multi-second delays before reconnecting.
+    http.setReuse(false);
+    http.setTimeout(1200);
+    http.setConnectTimeout(700);
+
+    bool began = false;
     if (String(webhook_url).startsWith("https://")) {
-        WiFiClientSecure client;
-        client.setInsecure();
-        HTTPClient http;
-        http.setTimeout(5000);
-
-        if (http.begin(client, webhook_url)) {
-            http.addHeader("Content-Type", "application/json");
-            if (strlen(webhook_secret) > 0) {
-                http.addHeader("x-webhook-secret", webhook_secret);
-            }
-            httpCode = http.POST(payload);
-            http.end();
-        }
+        secureWebhookClient.setInsecure();
+        began = http.begin(secureWebhookClient, webhook_url);
     } else {
-        WiFiClient client;
-        HTTPClient http;
-        http.setTimeout(5000);
+        began = http.begin(webhookClient, webhook_url);
+    }
 
-        if (http.begin(client, webhook_url)) {
-            http.addHeader("Content-Type", "application/json");
-            if (strlen(webhook_secret) > 0) {
-                http.addHeader("x-webhook-secret", webhook_secret);
-            }
-            httpCode = http.POST(payload);
-            http.end();
+    if (began) {
+        http.addHeader("Content-Type", "application/json");
+        if (strlen(webhook_secret) > 0) {
+            http.addHeader("x-webhook-secret", webhook_secret);
         }
+        httpCode = http.POST(payload);
+        http.end();
     }
 
     if (httpCode > 0 && httpCode < 400) {
-        Serial.printf("[Webhook] Sent %s for '%s' (HTTP %d)\n", state, payloadDeviceId.c_str(), httpCode);
+        Serial.printf("[Webhook] Sent %s for '%s' slot %d (HTTP %d)\n", state, payloadDeviceId.c_str(), slot, httpCode);
         return true;
     }
 
-    Serial.printf("[Webhook] Failed for '%s' (HTTP %d)\n", payloadDeviceId.c_str(), httpCode);
+    Serial.printf("[Webhook] Failed for '%s' slot %d (HTTP %d)\n", payloadDeviceId.c_str(), slot, httpCode);
     return false;
+}
+
+void setupWebhookSender() {
+    webhookQueue = xQueueCreate(WEBHOOK_QUEUE_SIZE, sizeof(WebhookEvent));
+    if (!webhookQueue) {
+        Serial.println("[Webhook] ERROR: Failed to create queue, falling back to direct sends");
+        return;
+    }
+
+    BaseType_t taskCreated = xTaskCreate(
+        webhookSenderTask,
+        "webhook_sender",
+        6144,
+        nullptr,
+        1,
+        &webhookTaskHandle
+    );
+
+    if (taskCreated != pdPASS) {
+        Serial.println("[Webhook] ERROR: Failed to create sender task, falling back to direct sends");
+        vQueueDelete(webhookQueue);
+        webhookQueue = nullptr;
+        return;
+    }
+
+    Serial.println("[Webhook] Async sender ready");
+}
+
+void webhookSenderTask(void* parameter) {
+    (void)parameter;
+
+    for (;;) {
+        WebhookEvent event;
+        if (xQueueReceive(webhookQueue, &event, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            unsigned long age = millis() - event.queuedAt;
+            if (age > WEBHOOK_MAX_EVENT_AGE_MS) {
+                Serial.printf("[Webhook] Dropped stale event (%lums old)\n", age);
+                int droppedStateCode = stateToCode(event.state);
+                if (droppedStateCode > 0 && droppedStateCode == lastWebhookStateQueuedCode) {
+                    lastWebhookStateQueuedCode = 0;
+                }
+                continue;
+            }
+
+            bool sent = sendWebhookStateNow(event.state, event.slot);
+            int stateCode = stateToCode(event.state);
+            if (stateCode > 0 && stateCode == lastWebhookStateQueuedCode) {
+                lastWebhookStateQueuedCode = 0;
+            }
+            if (sent && stateCode > 0) {
+                lastWebhookStateSentCode = stateCode;
+            }
+        }
+    }
+}
+
+int stateToCode(const char* state) {
+    if (!state) {
+        return 0;
+    }
+    if (strcmp(state, "FULL") == 0) {
+        return 1;
+    }
+    if (strcmp(state, "NORMAL") == 0) {
+        return 2;
+    }
+    return 0;
 }
 
 void saveRFCodes() {

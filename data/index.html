@@ -20,10 +20,6 @@
                     <span class="label">IP:</span>
                     <span id="wifi-ip">--</span>
                 </div>
-                <div class="status-item">
-                    <span class="label">MQTT:</span>
-                    <span id="mqtt-status" class="status-badge">Disconnected</span>
-                </div>
             </div>
         </header>
 
@@ -46,12 +42,6 @@
                         <p><strong>Signal:</strong> <span id="info-rssi">--</span> dBm</p>
                         <p><strong>Uptime:</strong> <span id="uptime">--</span></p>
                     </div>
-                    <div class="info-card">
-                        <h3>MQTT</h3>
-                        <p><strong>Server:</strong> <span id="mqtt-server">--</span></p>
-                        <p><strong>Port:</strong> <span id="mqtt-port">--</span></p>
-                        <p><strong>Status:</strong> <span id="mqtt-connected">--</span></p>
-                    </div>
                 </div>
             </section>
 
@@ -66,7 +56,7 @@
                     <a href="/restart" class="btn-restart" style="display: inline-block; text-decoration: none; margin-bottom: 15px;">🔄 Restart ESP32</a>
                 </div>
                 <div class="settings-card">
-                    <p>Reset WiFi and MQTT settings to reconfigure</p>
+                    <p>Reset WiFi settings to reconfigure</p>
                     <button id="reset-btn" class="btn-danger">Reset Configuration</button>
                 </div>
             </section>

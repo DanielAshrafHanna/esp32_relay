@@ -232,6 +232,42 @@
             margin-top: 5px;
             font-size: 0.85rem;
         }
+
+        .critical-note {
+            background: #fff3cd;
+            border-left: 4px solid #ff9800;
+            padding: 12px 14px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+        }
+
+        .critical-note p {
+            color: #6d4c00;
+            font-size: 0.88rem;
+            margin-bottom: 6px;
+        }
+
+        .critical-note p:last-child {
+            margin-bottom: 0;
+        }
+
+        .required-label::after {
+            content: " *";
+            color: #d32f2f;
+            font-weight: 700;
+        }
+
+        .validation-error {
+            margin-top: 10px;
+            color: #b71c1c;
+            font-size: 0.86rem;
+            display: none;
+        }
+
+        .form-input.input-error {
+            border-color: #d32f2f;
+            background: #fff8f8;
+        }
     </style>
 </head>
 <body>
@@ -244,44 +280,31 @@
         </div>
 
         <div class="config-section">
-            <h2>MQTT Configuration</h2>
-            
-            <div class="form-group">
-                <label for="mqtt-server">MQTT Server (IP Address)</label>
-                <input type="text" id="mqtt-server" placeholder="192.168.68.100" class="form-input">
+            <h2>Device and Webhook Configuration</h2>
+
+            <div class="critical-note">
+                <p><strong>Important:</strong> To receive updates in the web app, match these exactly:</p>
+                <p>1) <strong>Webhook URL</strong> -> must be your web app backend endpoint.</p>
+                <p>2) <strong>Webhook Device ID</strong> -> must be exactly the same Device ID configured in the web app.</p>
+                <p>3) <strong>Webhook Secret</strong> -> must match if your backend requires it.</p>
             </div>
 
             <div class="form-group">
-                <label for="mqtt-port">MQTT Port</label>
-                <input type="number" id="mqtt-port" placeholder="1883" class="form-input">
+                <label for="device-id">Device ID</label>
+                <input type="text" id="device-id" placeholder="esp32-rf" class="form-input">
+                <small style="color: #666;">Used as stable identity for this ESP32. Spaces are converted to hyphens.</small>
             </div>
 
             <div class="form-group">
-                <label for="mqtt-user">MQTT Username</label>
-                <input type="text" id="mqtt-user" placeholder="solacemqtt" class="form-input">
-            </div>
-
-            <div class="form-group">
-                <label for="mqtt-password">MQTT Password</label>
-                <input type="password" id="mqtt-password" placeholder="••••••••" class="form-input">
-                <small style="color: #666;">Leave unchanged to keep current password</small>
-            </div>
-
-            <div class="form-group">
-                <label for="mqtt-hostname">MQTT Hostname</label>
-                <input type="text" id="mqtt-hostname" placeholder="esp32-relay" class="form-input">
-                <small style="color: #666;">Used for MQTT topics (e.g., homeassistant/switch/<strong>hostname</strong>/relay1)</small>
-            </div>
-
-            <div class="form-group">
-                <label for="webhook-url">Webhook URL</label>
+                <label for="webhook-url" class="required-label">Webhook URL</label>
                 <input type="text" id="webhook-url" value="https://trash-monitor-web.vercel.app/api/bin-event" placeholder="https://trash-monitor-web.vercel.app/api/bin-event" class="form-input">
+                <small style="color: #666;">Use the exact webhook endpoint from your deployed web app/backend.</small>
             </div>
 
             <div class="form-group">
-                <label for="webhook-device-id">Webhook Device ID</label>
-                <input type="text" id="webhook-device-id" placeholder="esp32-bin-01" class="form-input">
-                <small style="color: #666;">Must match the Device ID in the web app. Spaces are automatically converted to hyphens.</small>
+                <label for="webhook-device-id" class="required-label">Webhook Device ID</label>
+                <input type="text" id="webhook-device-id" placeholder="bin-1-lobby" class="form-input">
+                <small style="color: #666;">Must exactly match the Device ID in the web app (same letters, numbers, hyphens).</small>
             </div>
 
             <div class="form-group">
@@ -296,7 +319,9 @@
                 <small style="color: #666;">Leave unchanged to keep current webhook secret</small>
             </div>
 
-            <button class="btn-save" onclick="saveMQTT()" style="margin-bottom: 30px;">💾 Save MQTT Settings</button>
+            <div id="webhook-validation-error" class="validation-error"></div>
+
+            <button class="btn-save" onclick="saveWebhook()" style="margin-bottom: 30px;">💾 Save Webhook Settings</button>
         </div>
 
         <div class="config-section">
@@ -343,7 +368,7 @@
         </div>
 
         <div class="info-note">
-            <p><strong>Note:</strong> After saving, the ESP32 will restart and republish MQTT discovery messages with the selected number of relays.</p>
+            <p><strong>Note:</strong> After saving settings, the ESP32 restarts to apply changes cleanly.</p>
         </div>
 
         <a href="/" class="back-link">← Back to Main Page</a>
@@ -356,6 +381,20 @@
             return value.trim().toLowerCase().replace(/\s+/g, '-');
         }
 
+        function setWebhookValidationError(message, fieldIds = []) {
+            const errorEl = document.getElementById('webhook-validation-error');
+            errorEl.textContent = message || '';
+            errorEl.style.display = message ? 'block' : 'none';
+
+            ['webhook-url', 'webhook-device-id', 'webhook-secret'].forEach(id => {
+                document.getElementById(id).classList.remove('input-error');
+            });
+
+            fieldIds.forEach(id => {
+                document.getElementById(id).classList.add('input-error');
+            });
+        }
+
         // Load current configuration
         async function loadConfig() {
             try {
@@ -365,14 +404,9 @@
                 
                 document.getElementById('current-relays').textContent = `${currentConfig} Channels`;
                 
-                // Load MQTT settings
-                document.getElementById('mqtt-server').value = data.mqtt_server || '';
-                document.getElementById('mqtt-port').value = data.mqtt_port || 1883;
-                document.getElementById('mqtt-user').value = data.mqtt_user || '';
-                document.getElementById('mqtt-password').value = data.mqtt_password || '';
-                document.getElementById('mqtt-hostname').value = data.mqtt_hostname || 'esp32-relay';
+                document.getElementById('device-id').value = data.device_id || 'esp32-rf';
                 document.getElementById('webhook-url').value = data.webhook_url || '';
-                document.getElementById('webhook-device-id').value = data.webhook_device_id || data.mqtt_hostname || 'esp32-relay';
+                document.getElementById('webhook-device-id').value = data.webhook_device_id || data.device_id || 'esp32-rf';
                 document.getElementById('webhook-bin-id').value = data.webhook_bin_id || '';
                 document.getElementById('webhook-secret').value = data.webhook_secret || '';
                 
@@ -435,40 +469,37 @@
             }
         }
 
-        // Save MQTT configuration
-        async function saveMQTT() {
-            const mqttServer = document.getElementById('mqtt-server').value.trim();
-            const mqttPort = parseInt(document.getElementById('mqtt-port').value);
-            const mqttUser = document.getElementById('mqtt-user').value.trim();
-            const mqttPassword = document.getElementById('mqtt-password').value;
-            const mqttHostname = document.getElementById('mqtt-hostname').value.trim() || 'esp32-relay';
+        // Save webhook/device configuration
+        async function saveWebhook() {
+            const deviceId = normalizeDeviceId(document.getElementById('device-id').value) || 'esp32-rf';
             const webhookUrl = document.getElementById('webhook-url').value.trim();
-            const webhookDeviceId = normalizeDeviceId(document.getElementById('webhook-device-id').value) || normalizeDeviceId(mqttHostname);
+            const webhookDeviceId = normalizeDeviceId(document.getElementById('webhook-device-id').value) || deviceId;
             const webhookBinId = document.getElementById('webhook-bin-id').value.trim();
             const webhookSecret = document.getElementById('webhook-secret').value;
 
-            if (!mqttServer || !mqttPort) {
-                alert('Please fill in MQTT server and port');
+            if (!webhookUrl) {
+                setWebhookValidationError('Webhook URL is required.', ['webhook-url']);
+                return;
+            }
+            if (!webhookUrl.startsWith('http://') && !webhookUrl.startsWith('https://')) {
+                setWebhookValidationError('Webhook URL must start with http:// or https://', ['webhook-url']);
+                return;
+            }
+            if (!webhookDeviceId) {
+                setWebhookValidationError('Webhook Device ID is required and must match the web app Device ID.', ['webhook-device-id']);
                 return;
             }
 
-            if (mqttPort < 1 || mqttPort > 65535) {
-                alert('Invalid port number');
-                return;
-            }
+            setWebhookValidationError('');
 
             try {
-                const response = await fetch('/api/admin/mqtt', {
+                const response = await fetch('/api/admin/webhook', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        mqtt_server: mqttServer,
-                        mqtt_port: mqttPort,
-                        mqtt_user: mqttUser,
-                        mqtt_password: mqttPassword,
-                        mqtt_hostname: mqttHostname,
+                        device_id: deviceId,
                         webhook_url: webhookUrl,
                         webhook_device_id: webhookDeviceId,
                         webhook_bin_id: webhookBinId,
@@ -477,7 +508,7 @@
                 });
 
                 if (response.ok) {
-                    document.getElementById('success-message').textContent = '✓ MQTT settings saved! ESP32 will restart in 3 seconds...';
+                    document.getElementById('success-message').textContent = '✓ Webhook settings saved! ESP32 will restart in 3 seconds...';
                     document.getElementById('success-message').style.display = 'block';
                     
                     // Wait 3 seconds then reload
@@ -485,11 +516,11 @@
                         window.location.href = '/';
                     }, 3000);
                 } else {
-                    alert('Failed to save MQTT settings');
+                    alert('Failed to save webhook settings');
                 }
             } catch (error) {
-                console.error('Error saving MQTT:', error);
-                alert('Error saving MQTT settings');
+                console.error('Error saving webhook settings:', error);
+                alert('Error saving webhook settings');
             }
         }
 
